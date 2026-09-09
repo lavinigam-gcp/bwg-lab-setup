@@ -20,8 +20,14 @@ it did not report.
    - Intel Mac (`Darwin` + `x86_64`) needs Rust for `cryptography`; the script offers to install it.
 3. Run `bash setup/verify.sh --json` first. If it already returns exit 0, say so and stop —
    do not reinstall a working environment.
-4. Show the user `bash setup/install.sh --dry-run` output, say roughly how long it will take
-   (45-90 minutes, mostly downloads), and get a go-ahead before changing anything.
+4. **Run `bash setup/preflight.sh` and show the user the report card.** This is mandatory and
+   changes nothing. Exit 0 GO, 1 GO WITH CAVEATS, 2 NO-GO.
+   - On **NO-GO**, stop. Explain which checks blocked it and recommend the lab VM. Do not install
+     anything, and do not reach for `--skip-preflight` to get past it.
+   - On **GO WITH CAVEATS**, summarise each warning in plain language and ask whether to continue.
+5. Show what `install.sh` will change, say roughly how long it takes (45-90 minutes, mostly
+   downloads), and **get an explicit go-ahead before changing anything**. `install.sh` asks too,
+   so never pass `--yes` unless the user has already said yes in this conversation.
 
 ## 2. Install
 
@@ -38,6 +44,10 @@ If a step fails, the script prints the exact `--only` command to retry it. Fix t
 then retry that one step. Do not restart from the beginning.
 
 ## 3. Verify
+
+Finish with `bash setup/verify.sh --readiness`, which adds a readiness summary on top of the parity
+table: software, lab skills, cloud sign-in, and what the human still has to do.
+
 
 ```
 bash setup/verify.sh --json
@@ -57,7 +67,7 @@ each repair, and keep going until it returns 0 or you are blocked on a human.
 | `google-adk`, `litellm`, `agents-cli` drift | Someone upgraded a package | `install.sh --only python --force` |
 | `config-paths` above 0 | The skills still carry the VM's `/config` paths | `install.sh --only skills --skills-src DIR` |
 | `sessions` below 3 | A session folder was deleted or never created | `install.sh --only sessions` |
-| `lab-skills` SKIP | Normal. The lab skills are distributed separately from this repository | Not a failure. Mention it, do not try to fix it |
+| `lab-skills` SKIP | The session folders are empty. The skills ARE bundled in this repo, so this means the sessions step did not run | `install.sh --only sessions` |
 | `lab-skill` MISSING | A skills source was given but the copy did not land, or is nested too deep | `install.sh --only sessions --skills-src DIR`, then confirm each skill has `SKILL.md` at its own top level |
 | `node`, `gcloud` MISSING | Tool step did not complete | `install.sh --only tools` |
 | `agy` MISSING | CLI not on PATH | `install.sh --only agy`, then add `~/.local/bin` to PATH |
@@ -84,8 +94,6 @@ These cannot be automated. List whichever still apply, and be specific:
 - Ask the lab administrator for the IAM roles this account needs, and for confirmation that the
   Google Cloud estate has been provisioned. Without it, every exercise fails on its first real call
   even though the laptop is correct.
-- Obtain the lab skills, which are not in this repository, and install them with
-  `install.sh --only skills --skills-src DIR` followed by `--only sessions --skills-src DIR`.
 - Reopen Antigravity on `~/Desktop/Session1` and continue there.
 
 ## 6. Scope

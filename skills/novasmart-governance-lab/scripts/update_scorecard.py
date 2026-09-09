@@ -12,16 +12,16 @@ import argparse
 from datetime import datetime, timezone
 
 # --- Output locations --------------------------------------------------------
-# On the lab VM the learner's home is /tmp/fh4, and /tmp/fh4 is a bind mount from
+# On the lab VM the learner's home is $HOME, and $HOME is a bind mount from
 # the host, so anything written under it survives a container restart. /tmp is
 # container-local and is NOT on that mount, so both the report and the
-# cumulative state file live under /tmp/fh4.
+# cumulative state file live under $HOME.
 #
 # Every path below is absolute and independent of the current working directory
-# (agy runs from /tmp/fh4/Desktop/Session1, not from the skill directory).
+# (agy runs from $HOME/Desktop/Session1, not from the skill directory).
 #
 # NOVASMART_SCORECARD_HOME exists only so this script can be exercised outside
-# the container without writing to /tmp/fh4. It is not set in the lab.
+# the container without writing to $HOME. It is not set in the lab.
 HOME_DIR = os.environ.get("NOVASMART_SCORECARD_HOME", os.path.expanduser("~"))
 DESKTOP_DIR = os.path.join(HOME_DIR, "Desktop")
 

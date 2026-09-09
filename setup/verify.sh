@@ -10,12 +10,13 @@ LAB_HOME="${LAB_HOME:-$HOME/novasmart-lab}"
 LAB_ROOT="${LAB_ROOT:-$HOME}"
 SESSION="$LAB_ROOT/Desktop/Session1"
 
-JSON=0; HINTS=0
-for a in "$@"; do
+JSON=0; HINTS=0; READINESS=0
+for a in ${@+"$@"}; do
   case "$a" in
     --json) JSON=1 ;;
     --fix-hints) HINTS=1 ;;
-    -h|--help) sed -n '2,5p' "$0"; echo "Usage: verify.sh [--json] [--fix-hints]"; exit 0 ;;
+    --readiness) READINESS=1; HINTS=1 ;;
+    -h|--help) sed -n '2,5p' "$0"; echo "Usage: verify.sh [--json] [--fix-hints] [--readiness]"; exit 0 ;;
   esac
 done
 
@@ -47,7 +48,7 @@ fi
 chk python       "3.14"   "$("$PY" -c 'import platform;print(platform.python_version())' 2>/dev/null)" prefix "3.14.x"           "install.sh --only python"
 chk node         "24."    "$(node -v 2>/dev/null | tr -d v)"                                          prefix "24.x"             "install.sh --only tools"
 chk gcloud       ""       "$(gcloud version 2>/dev/null | awk '/Google Cloud SDK/{print $4}')"        any    "any (img 579)"    "install.sh --only tools"
-chk agy          ""       "$(agy --version 2>/dev/null | head -1)"                                    any    "any (img 1.1.10)" "install.sh --only agy"
+chk agy          ""       "$(agy --version 2>/dev/null | awk 'NR==1')"                                    any    "any (img 1.1.10)" "install.sh --only agy"
 chk google-adk   "2.2.0"  "$(ver google-adk)"                                                         exact  "2.2.0"            "install.sh --only python"
 chk agents-cli   "1.3.1"  "$(ver google-agents-cli)"                                                  exact  "1.3.1"            "install.sh --only python"
 chk google-genai "2.16.0" "$(ver google-genai)"                                                       exact  "2.16.0"           "install.sh --only python"
@@ -59,7 +60,8 @@ chk sessions     "3"      "$(ls -d "$LAB_ROOT"/Desktop/Session[123]/.agents/skil
 # checks are not applicable - they must not fail a software-only setup.
 if [ -n "$(ls -A "$SESSION/.agents/skills" 2>/dev/null)" ]; then
   chk lab-skill    "ok"   "$([ -f "$SESSION/.agents/skills/novasmart-governance-lab/SKILL.md" ] && echo ok)" exact "ok" "install.sh --only sessions --skills-src DIR"
-  chk config-paths "0"    "$(grep -rl '/config' "$SESSION/.agents/skills" 2>/dev/null | wc -l | tr -d ' ')" exact "0 files" "install.sh --only skills --skills-src DIR"
+  # component-aware: a bare /config also matches /configure in documentation URLs
+  chk config-paths "0"    "$(grep -rlE '(^|[[:space:]`\"(])/config([^a-zA-Z]|$)' "$SESSION/.agents/skills" 2>/dev/null | wc -l | tr -d ' ')" exact "0 files" "install.sh --only skills --skills-src DIR"
 else
   ROWS+=("lab-skills|not installed|n/a|SKIP|see README - skills are distributed separately")
 fi
@@ -90,6 +92,34 @@ else
   echo "  adc        : $([ -f "$HOME/.config/gcloud/application_default_credentials.json" ] && echo present || echo MISSING)"
   echo
   echo "  $pass of $total checks OK"
+  if [ "$READINESS" = 1 ]; then
+    echo
+    echo "  READINESS REPORT"
+    printf '  '; printf '%.0s=' {1..66}; echo
+    sw="not ready"; est="not ready"; auth="not ready"
+    [ "$code" = 0 ] && sw="ready"
+    [ -f "$SESSION/.agents/skills/novasmart-governance-lab/SKILL.md" ] && est="installed"
+    [ -f "$HOME/.config/gcloud/application_default_credentials.json" ] \
+      && [ -n "$(gcloud config get-value project 2>/dev/null)" ] && auth="signed in"
+    printf "  %-34s %s\n" "software toolchain"        "$sw"
+    printf "  %-34s %s\n" "lab skills in Session1"    "$est"
+    printf "  %-34s %s\n" "google cloud sign-in"      "$auth"
+    printf "  %-34s %s\n" "antigravity IDE"           "check by hand - open it"
+    printf "  %-34s %s\n" "cloud project provisioned" "ask your lab administrator"
+    echo
+    if [ "$sw" = ready ] && [ "$est" = installed ] && [ "$auth" = "signed in" ]; then
+      echo "  Your laptop is ready. Open $SESSION in Antigravity and begin."
+    else
+      echo "  Still to do:"
+      [ "$sw"   != ready ]       && echo "    - fix the failing checks above (bash setup/verify.sh --fix-hints)"
+      [ "$est"  != installed ]   && echo "    - install the lab skills: bash setup/install.sh --only sessions"
+      [ "$auth" != "signed in" ] && { echo "    - gcloud auth login && gcloud auth application-default login"
+                                      echo "      then: gcloud config set project PROJECT_ID"
+                                      echo "            gcloud auth application-default set-quota-project PROJECT_ID"; }
+      echo "    - open Antigravity and sign in with 'Use Google Cloud project instead'"
+      echo "    - confirm with your lab administrator that the cloud estate is provisioned"
+    fi
+  fi
   if [ "$HINTS" = 1 ] && [ "$code" != 0 ]; then
     echo; echo "  how to fix:"
     for r in "${ROWS[@]}"; do

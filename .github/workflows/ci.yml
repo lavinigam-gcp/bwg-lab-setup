@@ -1,0 +1,28 @@
+name: ci
+on: [push, pull_request]
+
+jobs:
+  shell:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: syntax
+        run: for f in setup/*.sh; do bash -n "$f"; done
+      - name: shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck && shellcheck -S warning setup/*.sh || true
+      - name: preflight runs and reports
+        run: bash setup/preflight.sh || [ $? -le 2 ]
+      - name: install dry-run completes
+        run: |
+          bash setup/install.sh --dry-run --yes --root /tmp/ci > /tmp/dry.out 2>&1
+          grep -q "Step 6/6" /tmp/dry.out || { echo "dry-run did not reach the last step"; cat /tmp/dry.out; exit 1; }
+      - name: dry-run must not create anything
+        run: test ! -d /tmp/ci
+      - name: skills are published path-portable
+        run: |
+          if grep -rqE '(^|[[:space:]`"(])/config([^a-zA-Z]|$)' skills; then
+            echo "skills still contain the VM home path"; exit 1; fi
+      - name: no substring corruption from the path rewrite
+        run: |
+          if grep -rqE '[a-zA-Z]\$HOME' skills --include=*.md; then
+            echo "path rewrite corrupted a word"; exit 1; fi
