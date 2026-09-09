@@ -114,9 +114,14 @@ fi
 # ---------- connectivity ----------
 probe() { # label url
   local code
-  code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 12 -L "$2" 2>/dev/null || echo 000)"
-  if [ "$code" = 000 ]; then add "$1" FAIL "unreachable" "reachable" "Blocked or offline. Check your network, VPN or firewall."
-  else add "$1" OK "HTTP $code" "reachable" ""; fi
+  # `... || echo 000` was wrong: curl ALSO prints 000 on failure, so the value became
+  # "000000", the equality test failed, and a BLOCKED endpoint was reported reachable.
+  # Assign the fallback rather than appending to the captured output.
+  code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 12 -L "$2" 2>/dev/null)" || code=""
+  case "${code:-000}" in
+    000) add "$1" FAIL "unreachable" "reachable" "Blocked or offline. Check your network, VPN or firewall." ;;
+    *)   add "$1" OK "HTTP $code" "reachable" "" ;;
+  esac
 }
 probe "github.com"        "https://github.com"
 probe "pypi.org"          "https://pypi.org/simple/"
