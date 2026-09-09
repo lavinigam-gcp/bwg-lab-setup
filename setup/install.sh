@@ -259,7 +259,11 @@ gate() {
   if [ ! -x "$SCRIPT_DIR/preflight.sh" ]; then
     warn "preflight.sh not found - continuing without it"; return 0
   fi
-  bash "$SCRIPT_DIR/preflight.sh"; local pf=$?
+  # `cmd; rc=$?` is NOT set -e safe: the non-zero exit fires the ERR trap before the
+  # assignment runs. preflight returns 1 for GO WITH CAVEATS, which is the common case,
+  # so this killed the installer on most real machines.
+  local pf=0
+  bash "$SCRIPT_DIR/preflight.sh" || pf=$?
   case "$pf" in
     0) say "Preflight: GO" ;;
     1) say "Preflight: GO WITH CAVEATS" ;;
