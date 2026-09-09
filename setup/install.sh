@@ -115,17 +115,20 @@ step_tools() {
         || warn "Skipping. The python step will fail without them."
     fi
   else
+    # DEBIAN_FRONTEND must be passed THROUGH sudo: sudo's env_reset strips it, and
+    # without it tzdata's postinst opens an interactive debconf prompt that hangs the
+    # install forever with no output. Found by the container journey test.
     info "apt steps need sudo."
-    run sudo apt-get update
-    run sudo apt-get install -y curl wget gnupg ca-certificates apt-transport-https git build-essential
+    run sudo DEBIAN_FRONTEND=noninteractive apt-get update
+    run sudo DEBIAN_FRONTEND=noninteractive apt-get install -y curl wget gnupg ca-certificates apt-transport-https git build-essential
     if ! need gcloud; then
       run sudo install -m 0755 -d /usr/share/keyrings
       run bash -c 'curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo gpg --dearmor -o /usr/share/keyrings/cloud.google.gpg'
       run bash -c 'echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" | sudo tee /etc/apt/sources.list.d/google-cloud-sdk.list >/dev/null'
     fi
-    need node || run bash -c 'curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash -'
-    run sudo apt-get update
-    run sudo apt-get install -y google-cloud-cli nodejs
+    need node || run bash -c 'curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E DEBIAN_FRONTEND=noninteractive bash -'
+    run sudo DEBIAN_FRONTEND=noninteractive apt-get update
+    run sudo DEBIAN_FRONTEND=noninteractive apt-get install -y google-cloud-cli nodejs
   fi
   need uv || run bash -c 'curl -LsSf https://astral.sh/uv/install.sh | sh'
   export PATH="$HOME/.local/bin:$PATH"
@@ -152,11 +155,11 @@ step_python() {
       need ffmpeg || run brew install ffmpeg
       need code   || run brew install --cask visual-studio-code
     else
-      run sudo apt-get install -y ffmpeg
+      run sudo DEBIAN_FRONTEND=noninteractive apt-get install -y ffmpeg
       if ! need code; then
         run bash -c 'wget -qO- https://packages.microsoft.com/keys/microsoft.asc | sudo gpg --dearmor -o /usr/share/keyrings/packages.microsoft.gpg'
         run bash -c 'echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/packages.microsoft.gpg] https://packages.microsoft.com/repos/code stable main" | sudo tee /etc/apt/sources.list.d/vscode.list >/dev/null'
-        run sudo apt-get update && run sudo apt-get install -y code
+        run sudo DEBIAN_FRONTEND=noninteractive apt-get update && run sudo DEBIAN_FRONTEND=noninteractive apt-get install -y code
       fi
     fi
   fi
