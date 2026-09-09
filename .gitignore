@@ -1,0 +1,5 @@
+install.log
+.venv/
+__pycache__/
+*.bak
+.DS_Store
