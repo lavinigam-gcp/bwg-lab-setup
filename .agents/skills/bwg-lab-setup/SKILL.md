@@ -1,9 +1,9 @@
 ---
 name: bwg-lab-setup
-description: Set up this laptop for the NovaSmart agent-governance lab, or repair a setup that is failing. Use when the user says "set up my laptop", "install the lab environment", "my lab environment is broken", or when a lab exercise fails because tooling or skills are missing.
+description: Set up this laptop for the Build with Google Track 2 or Track 3 lab, or repair a setup that is failing. Use when the user says "set up my laptop", "install the lab environment", "my lab environment is broken", or when a lab exercise fails because tooling or skills are missing.
 ---
 
-# Laptop setup for the NovaSmart lab
+# Laptop setup for the Build with Google Track 2 / Track 3 labs
 
 Drive `setup/install.sh` and `setup/verify.sh` to bring this machine to parity with the lab VM,
 then hand back a short list of the things only a human can do.
@@ -63,7 +63,7 @@ each repair, and keep going until it returns 0 or you are blocked on a human.
 | Check fails | Cause | Fix |
 |---|---|---|
 | `python` | Wrong interpreter, or venv built on an older Python | `uv python install 3.14`, then `install.sh --only python --force` |
-| `packages` not 128 | Resolution diverged or a build failed | Re-run `install.sh --only python`. On an Intel Mac see below |
+| `packages` not 120 | Resolution diverged or a build failed | Re-run `install.sh --only python`. On an Intel Mac see below |
 | `google-adk`, `litellm`, `agents-cli` drift | Someone upgraded a package | `install.sh --only python --force` |
 | `config-paths` above 0 | The skills still carry the VM's `/config` paths | `install.sh --only skills --skills-src DIR` |
 | `sessions` below 3 | A session folder was deleted or never created | `install.sh --only sessions` |

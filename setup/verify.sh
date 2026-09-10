@@ -52,8 +52,11 @@ chk agy          ""       "$(agy --version 2>/dev/null | awk 'NR==1')"          
 chk google-adk   "2.2.0"  "$(ver google-adk)"                                                         exact  "2.2.0"            "install.sh --only python"
 chk agents-cli   "1.3.1"  "$(ver google-agents-cli)"                                                  exact  "1.3.1"            "install.sh --only python"
 chk google-genai "2.16.0" "$(ver google-genai)"                                                       exact  "2.16.0"           "install.sh --only python"
-chk litellm      "1.83.7" "$(ver litellm)"                                                            exact  "1.83.7"           "install.sh --only python"
-chk packages     "128"    "$("$PY" -c "import importlib.metadata as m;print(sum(1 for d in m.distributions() if (d.metadata['Name'] or '') not in ('pip','setuptools','wheel')))" 2>/dev/null)" exact "128" "install.sh --only python"
+# litellm and an OpenAI client used to arrive via google-cloud-aiplatform[evaluation].
+# Nothing in these labs uses them, so they are excluded - assert they stay excluded,
+# which also catches an install that forgot --no-deps and let the resolver re-add them.
+chk no-vendor-sdk "0"      "$("$PY" -c "import importlib.metadata as m;print(sum(1 for d in m.distributions() if (d.metadata['Name'] or '').lower() in ('litellm','openai','tiktoken','tokenizers','cdp')))" 2>/dev/null)" exact "0 pkgs" "install.sh --only python --force"
+chk packages     "120"    "$("$PY" -c "import importlib.metadata as m;print(sum(1 for d in m.distributions() if (d.metadata['Name'] or '') not in ('pip','setuptools','wheel')))" 2>/dev/null)" exact "120" "install.sh --only python"
 chk sessions     "3"      "$(ls -d "$LAB_ROOT"/Desktop/Session[123]/.agents/skills 2>/dev/null | wc -l | tr -d ' ')" exact "3"  "install.sh --only sessions"
 
 # The lab skills ship separately from this repository. If none are installed, these two

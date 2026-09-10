@@ -1,7 +1,7 @@
 # bwg-lab-setup
 
 Set up a personal laptop — macOS, Linux, or Windows via WSL2 — with the software stack for the
-Build with Google Track 2 lab.
+Build with Google **Track 2 and Track 3** labs, so you can run them without the provided cloud VM.
 
 ---
 
@@ -37,6 +37,17 @@ This includes, without limitation, damages for loss of data, corruption or delet
 damage to or misconfiguration of an operating system, an unusable or unbootable device, loss of
 profits, business interruption, or any charges incurred against any cloud account — even if advised
 of the possibility of such damages.
+
+**Software versions are pinned and NOT actively maintained.** This repository installs specific,
+pinned versions of third-party software, and it is not monitored for security advisories. Those
+versions will age. A package pinned here today may be found to contain a security vulnerability
+tomorrow, and **no notice of any kind will be given to you** — there is no advisory feed, no
+security patching process, no update mechanism, and no commitment to publish a fix or to respond to
+one. Neither the author nor any contributor undertakes to track, disclose, remediate, or notify you
+of any vulnerability in this repository or in anything it installs. **Assessing, monitoring, and
+patching the software on your machine is entirely and solely your responsibility**, including
+checking these pins against current advisories before you run them and keeping the resulting
+installation up to date afterwards.
 
 **You are solely responsible** for deciding to run this software, for any changes it makes to any
 system you run it on, and for any consequences that follow. **Back up anything you cannot afford to
@@ -146,7 +157,7 @@ but it cannot tell for certain — the check is yours to make.
 | | Version | Required |
 |---|---|---|
 | Python | 3.14 | yes |
-| Python packages | 128, pinned in `setup/requirements-lock.txt` | yes |
+| Python packages | 120, pinned in `setup/requirements-lock.txt` | yes |
 | Google Cloud CLI | current | yes |
 | `agy` (Antigravity CLI) | current | yes |
 | The lab skills | bundled in `skills/` | yes |
@@ -174,6 +185,11 @@ setup/install.sh [options]
 setup/verify.sh [--json] [--fix-hints] [--readiness]
   exit 0 all pass · 1 drift · 2 missing · 3 no virtual environment
 ```
+
+The Python set is installed with `--no-deps`, because `requirements-lock.txt` is the complete
+resolved environment. Without that flag the resolver re-adds packages that were deliberately
+removed — `google-agents-cli` hard-requires `google-cloud-aiplatform[evaluation]`, whose extra pulls
+in LiteLLM and an OpenAI client that nothing in these labs uses — and it adds them unpinned.
 
 `install.sh` is idempotent — re-running a finished step does nothing. If a step fails it prints the
 single `--only` command that retries just that step.

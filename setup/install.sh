@@ -147,7 +147,11 @@ step_python() {
   local lock="$SCRIPT_DIR/requirements-lock.txt"
   [ -f "$lock" ] || die "requirements-lock.txt not found next to this script ($SCRIPT_DIR)"
   info "installing $(grep -c '==' "$lock") pinned packages (~230 MB)"
-  run env VIRTUAL_ENV="$LAB_HOME/.venv" uv pip install -r "$lock"
+  # --no-deps is deliberate: the lockfile is the COMPLETE resolved set. Without it the
+  # resolver re-adds packages we removed on purpose (google-agents-cli hard-requires
+  # google-cloud-aiplatform[evaluation], whose extra drags in litellm and an OpenAI
+  # client), and at unpinned newer versions.
+  run env VIRTUAL_ENV="$LAB_HOME/.venv" uv pip install --no-deps -r "$lock"
   if [ "$WITH_EXTRAS" = 1 ]; then
     info "installing Playwright's browser (~170 MB)"
     run "$LAB_HOME/.venv/bin/playwright" install chromium
