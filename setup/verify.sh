@@ -88,6 +88,7 @@ else
   [ -f "$REPO_DIR/skills/PROVENANCE.txt" ] && echo "  skills     : $(head -1 "$REPO_DIR/skills/PROVENANCE.txt")"
   echo "  in Session1: $(ls -1 "$SESSION/.agents/skills" 2>/dev/null | tr '\n' ' ')"
   echo "  scorecard  : ${NOVASMART_SCORECARD_HOME:-UNSET — set it, see runbook 4.4}"
+  echo "  gcp account: $(gcloud config get-value account 2>/dev/null) (must be the lab account, not personal or work)"
   echo "  gcp project: $(gcloud config get-value project 2>/dev/null)"
   echo "  adc        : $([ -f "$HOME/.config/gcloud/application_default_credentials.json" ] && echo present || echo MISSING)"
   echo

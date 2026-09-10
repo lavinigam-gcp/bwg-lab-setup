@@ -1,7 +1,48 @@
 # bwg-lab-setup
 
 Set up a personal laptop — macOS, Linux, or Windows via WSL2 — with the software stack for the
-Build with Google Track 2 lab, so you can do the lab without the provided cloud VM.
+Build with Google Track 2 lab.
+
+---
+
+## ⚠️ Read this before you run anything
+
+**This is not an official Google product, project, or repository.** It is an independent, personal
+project. It is not created, endorsed, sponsored, supported, or maintained by Google LLC or any of
+its affiliates. Nothing in this repository represents the views of Google, and no Google warranty,
+service level, or support commitment applies to it.
+
+**Use the lab-provided virtual machine instead.** The VM is the supported, tested environment for
+this lab, and it is what you should use unless you have a specific reason not to. This repository
+exists only for experienced users who are comfortable administering their own machine, who have read
+these scripts, and who accept the risks of running them. If you are unsure whether that describes
+you, use the VM.
+
+**These scripts change your computer.** They install system packages, add third-party package
+repositories and their signing keys, download and execute installer scripts from the internet,
+create and delete directories under your home directory, and append lines to your shell profile. On
+Linux and WSL2 they invoke `sudo` and therefore run commands with administrative privileges. Run
+`bash setup/install.sh --dry-run` to print every command before any of it executes.
+
+**No warranty.** This software is provided on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF
+ANY KIND, either express or implied, including without limitation any warranties of TITLE,
+NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A PARTICULAR PURPOSE. See the
+[LICENSE](LICENSE) for the governing terms.
+
+**You assume all risk, and all liability is disclaimed.** To the maximum extent permitted by
+applicable law, in no event shall the author, the copyright holder, or any contributor be liable to
+you for any direct, indirect, incidental, special, exemplary, or consequential damages of any
+character arising out of or in any way related to your use of, or inability to use, this software.
+This includes, without limitation, damages for loss of data, corruption or deletion of files,
+damage to or misconfiguration of an operating system, an unusable or unbootable device, loss of
+profits, business interruption, or any charges incurred against any cloud account — even if advised
+of the possibility of such damages.
+
+**You are solely responsible** for deciding to run this software, for any changes it makes to any
+system you run it on, and for any consequences that follow. **Back up anything you cannot afford to
+lose before you begin.**
+
+---
 
 Everything is pinned to a reference environment. Verified 19 August 2026.
 
@@ -53,6 +94,9 @@ repairs what it can. It will still stop and show you the preflight verdict befor
 
 - **Antigravity IDE** — install it yourself from <https://antigravity.google/download>. It is the
   editor the lab runs in, so it cannot install itself.
+- **Sign in to Antigravity and `agy` with the Qwiklabs account issued for this lab.** Not your
+  personal Google account, and not your work or corporate account. See
+  [Which account to use](#which-account-to-use).
 - macOS 13+, or a Linux with glibc 2.28+ (Ubuntu 20.04+ / Debian 10+), or Windows 10 build 19044+
   with WSL2 and WSLg
 - 8 GB RAM minimum, 16 GB recommended · 15 GB free disk · 4 CPU cores recommended
@@ -61,6 +105,41 @@ repairs what it can. It will still stop and show you the preflight verdict befor
 
 Native Windows is **not supported**: a required package (`uvloop`) publishes no Windows builds.
 Use WSL2.
+
+## Which account to use
+
+**Use only the Qwiklabs account you were given for this lab**, in Antigravity, in `agy`, and in
+`gcloud`. Do not use a personal Google account, and do not use a work or corporate account.
+
+Why this matters:
+
+- The lab's cloud project, its agents, and its permissions all belong to the issued account. A
+  different identity will not see them, and the exercises will fail in ways that look like broken
+  tooling rather than a wrong login.
+- Signing in with a corporate account can apply your organisation's policies to the session, and may
+  route lab activity through accounts and audit logs that have nothing to do with the lab.
+- Anything the lab creates while you are signed in as yourself lands in **your** project, and any
+  charges land on **your** billing account.
+
+Before you start, confirm all three agree:
+
+```bash
+gcloud auth list                  # the active account must be the lab account
+gcloud config get-value project   # must be the lab project
+agy --version                     # then check Antigravity's own signed-in account in the IDE
+```
+
+If you are already signed in as someone else, sign out of Antigravity first, and use a separate
+gcloud configuration for the lab so you do not disturb your normal setup:
+
+```bash
+gcloud config configurations create lab
+gcloud auth login                 # the lab account
+gcloud auth application-default login
+```
+
+`setup/preflight.sh` reports the active account and warns if it does not look like a lab account,
+but it cannot tell for certain — the check is yours to make.
 
 ## What gets installed
 

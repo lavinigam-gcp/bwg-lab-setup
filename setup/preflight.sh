@@ -111,6 +111,23 @@ if command -v sudo >/dev/null 2>&1 && [ "$PLAT" != macos ]; then
     || add "sudo" WARN "will prompt" "needed for apt" "You will be asked for your password during the tool step."
 fi
 
+# ---------- identity ----------
+# The lab is played with the issued Qwiklabs account. A personal or corporate login
+# points at the wrong project and fails in ways that look like broken tooling.
+if command -v gcloud >/dev/null 2>&1; then
+  ACCT="$(gcloud config get-value account 2>/dev/null)"
+  case "${ACCT:-}" in
+    ""|"(unset)")
+      add "google account" WARN "not signed in" "the lab account" \
+        "Sign in with the Qwiklabs account issued for this lab, not a personal or work account." ;;
+    *@qwiklabs.net|*@gcpstudent*|*@qwiklabs*)
+      add "google account" OK "$ACCT" "the lab account" "" ;;
+    *)
+      add "google account" WARN "$ACCT" "the lab account" \
+        "This does not look like a Qwiklabs lab account. Using a personal or corporate account points at the wrong project and can bill your own account. Verify before continuing." ;;
+  esac
+fi
+
 # ---------- connectivity ----------
 probe() { # label url
   local code

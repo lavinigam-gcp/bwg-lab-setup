@@ -84,11 +84,22 @@ Known environment failures that are not the script's fault:
 - **Antigravity will not start on Linux or WSL2** — set the `chrome-sandbox` permissions. Never add
   `--no-sandbox`; it disables a real security boundary.
 
+## 4b. Check which account is signed in
+
+The lab is played with the **Qwiklabs account issued for it** — never a personal Google account and
+never a work or corporate one. A different identity cannot see the lab's project or agents, and
+anything created lands in the user's own project and bills their own account.
+
+Preflight reports the active account and flags anything that does not look like a lab account. If it
+warns, **stop and ask the user to confirm** before installing. Do not assume it is fine because the
+tooling works.
+
 ## 5. Hand off
 
 These cannot be automated. List whichever still apply, and be specific:
 
-- Sign in to Antigravity, choosing **Use Google Cloud project instead**.
+- Sign in to Antigravity with the **Qwiklabs account issued for this lab**, choosing
+  **Use Google Cloud project instead**. Not a personal or corporate account.
 - `gcloud auth login` and `gcloud auth application-default login`, then
   `gcloud auth application-default set-quota-project PROJECT_ID`. The quota project is not optional.
 - Ask the lab administrator for the IAM roles this account needs, and for confirmation that the
