@@ -6,23 +6,87 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - name: syntax
         run: for f in setup/*.sh; do bash -n "$f"; done
+
       - name: shellcheck
         run: sudo apt-get update && sudo apt-get install -y shellcheck && shellcheck -S warning setup/*.sh || true
+
       - name: preflight runs and reports
         run: bash setup/preflight.sh || [ $? -le 2 ]
+
       - name: install dry-run completes
         run: |
           bash setup/install.sh --dry-run --yes --root /tmp/ci > /tmp/dry.out 2>&1
-          grep -q "Step 6/6" /tmp/dry.out || { echo "dry-run did not reach the last step"; cat /tmp/dry.out; exit 1; }
+          # Assert the terminal marker, not a step number. This used to grep "Step 6/6"
+          # and broke the moment a step was removed, even though the dry-run succeeded.
+          grep -q "Done. Now run" /tmp/dry.out \
+            || { echo "dry-run did not reach the end"; cat /tmp/dry.out; exit 1; }
+
       - name: dry-run must not create anything
         run: test ! -d /tmp/ci
+
+      - name: every declared step is runnable
+        run: |
+          steps=$(sed -n 's/^ALL_STEPS=(\(.*\))/\1/p' setup/install.sh)
+          [ -n "$steps" ] || { echo "could not read ALL_STEPS"; exit 1; }
+          for s in $steps; do
+            grep -q "^step_$s()" setup/install.sh \
+              || { echo "declared step '$s' has no step_$s function"; exit 1; }
+            bash setup/install.sh --dry-run --yes --only "$s" --root /tmp/ci-only >/dev/null 2>&1 \
+              || { echo "--only $s failed"; exit 1; }
+          done
+          for f in $(grep -oE '^step_[a-z]+' setup/install.sh | sed 's/step_//'); do
+            echo "$steps" | grep -qw "$f" \
+              || { echo "step_$f exists but is not in ALL_STEPS"; exit 1; }
+          done
+          echo "steps ok: $steps"
+
+      - name: verify has not lost its checks
+        run: |
+          n=$(grep -c '^chk ' setup/verify.sh)
+          [ "$n" -ge 8 ] || { echo "verify.sh has only $n checks - did some get deleted?"; exit 1; }
+          echo "verify.sh has $n checks"
+
+      - name: pinned set matches what verify expects
+        run: |
+          lock=$(grep -c '==' setup/requirements-lock.txt)
+          want=$(sed -n 's/.*chk packages *"\([0-9]*\)".*/\1/p' setup/verify.sh)
+          [ "$lock" = "$want" ] \
+            || { echo "lockfile has $lock packages but verify.sh expects $want"; exit 1; }
+          echo "lockfile and verify agree: $lock packages"
+
+      - name: no third-party model vendor SDKs
+        run: |
+          if grep -qiE '^(litellm|openai|anthropic|tiktoken|tokenizers|cdp)==' setup/requirements-lock.txt; then
+            echo "a vendor SDK is back in the lockfile"; exit 1; fi
+
       - name: skills are published path-portable
         run: |
           if grep -rqE '(^|[[:space:]`"(])/config([^a-zA-Z]|$)' skills; then
             echo "skills still contain the VM home path"; exit 1; fi
+
       - name: no substring corruption from the path rewrite
         run: |
           if grep -rqE '[a-zA-Z]\$HOME' skills --include=*.md; then
             echo "path rewrite corrupted a word"; exit 1; fi
+
+      - name: docs and scripts agree
+        run: |
+          for term in "only agy" "step_agy" "Step ./6"; do
+            if grep -rqE "$term" README.md manual_setup.md TROUBLESHOOTING.md setup/ 2>/dev/null; then
+              echo "stale reference to '$term'"; exit 1; fi
+          done
+
+      - name: markdown links resolve
+        run: |
+          python3 - <<'PY'
+          import re, os, glob, sys
+          bad = [f"{f} -> {m}"
+                 for f in glob.glob("*.md") + glob.glob(".agents/skills/*/*.md")
+                 for m in re.findall(r'\]\(([^)#]+\.md)(?:#[^)]*)?\)', open(f).read())
+                 if not os.path.exists(os.path.normpath(os.path.join(os.path.dirname(f), m)))]
+          print("broken links:", bad or "none")
+          sys.exit(1 if bad else 0)
+          PY
