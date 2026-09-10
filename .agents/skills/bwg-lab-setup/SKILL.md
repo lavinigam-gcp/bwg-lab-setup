@@ -73,7 +73,8 @@ each repair, and keep going until it returns 0 or you are blocked on a human.
 | `agy` MISSING | CLI not on PATH | `install.sh --only agy`, then add `~/.local/bin` to PATH |
 | exit 3 | No virtual environment | `install.sh --only python` |
 
-Known environment failures that are not the script's fault:
+TROUBLESHOOTING.md in the repository root lists every known failure by operating system; consult
+it before improvising a fix. Known environment failures that are not the script's fault:
 
 - **`cryptography` will not build on an Intel Mac** — no Intel wheel exists for the pinned version.
   Run `xcode-select --install` and `brew install rust`, then retry. If the user is blocked,

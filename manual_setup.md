@@ -275,7 +275,8 @@ playwright install chromium
 
 ## If something goes wrong
 
-`setup/verify.sh --fix-hints` prints the repair for each failing check. The ones that catch people most often:
+`setup/verify.sh --fix-hints` prints the repair for each failing check. The full list, by operating
+system, is in **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)**. The ones that catch people most often:
 
 | Symptom | Cause |
 |---|---|

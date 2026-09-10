@@ -86,7 +86,7 @@ case "$(uname -s)" in
   Darwin) OS=macos; PKG=brew ;;
   Linux)  OS=linux; PKG=apt
           grep -qi microsoft /proc/version 2>/dev/null && OS=wsl2 ;;
-  *) die "unsupported OS: $(uname -s). See Appendix A for native Windows." ;;
+  *) die "unsupported OS: $(uname -s). Native Windows is unsupported - use WSL2. See TROUBLESHOOTING.md" ;;
 esac
 ARCH="$(uname -m)"
 IS_INTEL_MAC=0

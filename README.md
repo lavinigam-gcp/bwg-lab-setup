@@ -67,6 +67,8 @@ Pick one. They produce the same environment, and `setup/verify.sh` checks all th
 | **B** | [Run the scripts](#b--run-the-scripts) | You want automation without an agent |
 | **C** | [Do it by hand](manual_setup.md) | You want to see and approve every command |
 
+Something not working? **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)**.
+
 ---
 
 ## A — Ask the assistant
@@ -250,5 +252,6 @@ anything here.
 Intel Macs need Rust and the Xcode command line tools, because the pinned `cryptography` version no
 longer publishes an Intel wheel. `install.sh` detects this and offers to install them.
 
-Problems: see [CONTRIBUTING.md](CONTRIBUTING.md) for what to include in an issue.
+Problems: **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** covers every failure we have seen, by
+operating system. See [CONTRIBUTING.md](CONTRIBUTING.md) for what to include in an issue.
 Licensed under [Apache 2.0](LICENSE).
