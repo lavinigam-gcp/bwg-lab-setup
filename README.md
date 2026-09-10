@@ -57,7 +57,40 @@ lose before you begin.**
 
 Everything is pinned to a reference environment. Verified 19 August 2026.
 
-## Start here
+## Three ways to do this
+
+Pick one. They produce the same environment, and `setup/verify.sh` checks all three the same way.
+
+| | Path | Best for |
+|---|---|---|
+| **A** | [Ask the assistant](#a--ask-the-assistant) | You have Antigravity and want it driven for you |
+| **B** | [Run the scripts](#b--run-the-scripts) | You want automation without an agent |
+| **C** | [Do it by hand](manual_setup.md) | You want to see and approve every command |
+
+---
+
+## A — Ask the assistant
+
+Clone the repository, open **that folder** in Antigravity, and say:
+
+> **Set up my laptop for the lab.**
+
+Or do it in one step, pasting the repository URL into the prompt:
+
+> **Set up my laptop for the lab. Everything you need is at
+> https://github.com/lavinigam-gcp/bwg-lab-setup — clone it and follow its setup process.**
+
+Both work; the one-step version has been run on macOS with Gemini 3.8 Flash. The two-step version is
+marginally safer, because Antigravity loads skills when a session **starts** — a repository cloned
+mid-session has its `SKILL.md` read as an ordinary file rather than loaded as steering. Clone first,
+open the folder, then prompt if you want the skill fully in force.
+
+Either way the assistant runs preflight, shows you the report card, lists exactly what it will
+change, and **waits for your go-ahead** before installing anything.
+
+---
+
+## B — Run the scripts
 
 **Step 1 — check your laptop can do this.** Nothing is installed by this step.
 
@@ -92,14 +125,15 @@ bash setup/install.sh
 bash setup/verify.sh --readiness
 ```
 
-### Doing it with the assistant instead
+---
 
-If you already have Antigravity installed, open this folder in it and say:
+## C — Do it by hand
 
-> Set up my laptop for the lab.
+Every command, step by step, with no scripts: **[manual_setup.md](manual_setup.md)**.
 
-The skill in `.agents/skills/bwg-lab-setup/` runs the same three scripts, reads the results, and
-repairs what it can. It will still stop and show you the preflight verdict before installing.
+It is derived from `setup/install.sh` and runs the same commands in the same order, so it produces
+the same environment. Use it if you want to approve each step yourself, if the installer will not
+run on your machine, or if you simply want to understand what it does.
 
 ## Prerequisites
 
@@ -210,7 +244,8 @@ anything here.
 |---|---|
 | Linux x86_64 | Tested — preflight, dry run, real run, idempotency, failure injection, repair loop |
 | WSL2 | Same code path as Linux; not yet run end to end by a human |
-| macOS, both architectures | Not yet run end to end by a human |
+| macOS (Apple Silicon) | Preflight and the assistant flow confirmed on macOS 26.6.2 / arm64 with Gemini 3.8 Flash — report card correct, account warning correct, approval gate held. The install itself not yet completed end to end |
+| macOS (Intel) | Not yet run |
 
 Intel Macs need Rust and the Xcode command line tools, because the pinned `cryptography` version no
 longer publishes an Intel wheel. `install.sh` detects this and offers to install them.
