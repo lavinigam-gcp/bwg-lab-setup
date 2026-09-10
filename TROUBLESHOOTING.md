@@ -62,15 +62,8 @@ The tools step did not complete, or the binary is not on `PATH` in this shell.
 Fix: `bash setup/install.sh --only tools`, then open a new terminal. On macOS also see the keg-only
 note below.
 
-**`agy` reported MISSING.**
-The CLI is not installed, or `~/.local/bin` is not on your `PATH`.
-Fix: `bash setup/install.sh --only agy`, then:
-
-```bash
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc   # ~/.bashrc on Linux/WSL2
-exec "$SHELL"
-agy --version
-```
+**Looking for `agy`?** It is not installed and not needed — the labs run in the Antigravity IDE and
+nothing in them calls the CLI. Install it separately if you want a terminal client.
 
 ---
 

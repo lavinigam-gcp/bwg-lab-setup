@@ -140,9 +140,10 @@ run on your machine, or if you simply want to understand what it does.
 ## Prerequisites
 
 - **Antigravity IDE** — install it yourself from <https://antigravity.google/download>. It is the
-  editor the lab runs in, so it cannot install itself.
-- **Sign in to Antigravity and `agy` with the Qwiklabs account issued for this lab.** Not your
-  personal Google account, and not your work or corporate account. See
+  editor the labs run in, so it cannot install itself. The separate `agy` command line tool is
+  **not** installed and is not needed: the labs are played in the IDE and nothing in them calls it.
+- **Sign in to Antigravity with the Qwiklabs account issued for this lab.** Not your personal Google
+  account, and not your work or corporate account. See
   [Which account to use](#which-account-to-use).
 - macOS 13+, or a Linux with glibc 2.28+ (Ubuntu 20.04+ / Debian 10+), or Windows 10 build 19044+
   with WSL2 and WSLg
@@ -155,8 +156,7 @@ Use WSL2.
 
 ## Which account to use
 
-**Use only the Qwiklabs account you were given for this lab**, in Antigravity, in `agy`, and in
-`gcloud`. Do not use a personal Google account, and do not use a work or corporate account.
+**Use only the Qwiklabs account you were given for this lab**, in Antigravity and in `gcloud`. Do not use a personal Google account, and do not use a work or corporate account.
 
 Why this matters:
 
@@ -173,7 +173,7 @@ Before you start, confirm all three agree:
 ```bash
 gcloud auth list                  # the active account must be the lab account
 gcloud config get-value project   # must be the lab project
-agy --version                     # then check Antigravity's own signed-in account in the IDE
+                                  # then check Antigravity's own signed-in account in the IDE
 ```
 
 If you are already signed in as someone else, sign out of Antigravity first, and use a separate
@@ -195,7 +195,6 @@ but it cannot tell for certain — the check is yours to make.
 | Python | 3.14 | yes |
 | Python packages | 120, pinned in `setup/requirements-lock.txt` | yes |
 | Google Cloud CLI | current | yes |
-| `agy` (Antigravity CLI) | current | yes |
 | The lab skills | bundled in `skills/` | yes |
 | Node.js | 24 | no — parity with the reference image |
 | ffmpeg, VS Code, Playwright's browser | current | no — `--with-extras` |
@@ -210,7 +209,7 @@ setup/preflight.sh [--json]
 
 setup/install.sh [options]
   --dry-run          print every command, change nothing
-  --only STEP        run one step: tools python agy skills sessions register
+  --only STEP        run one step: tools python skills sessions register
   --with-extras      also install ffmpeg, VS Code, Playwright's browser
   --force            rebuild an existing virtual environment
   --yes              do not prompt (does NOT override a preflight NO-GO)

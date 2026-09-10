@@ -41,7 +41,8 @@ Throughout, `~/novasmart-lab` is the toolchain and `~/Desktop/Session1|2|3` are 
 
 ## Step 1 — System tools
 
-Installs `git`, the Google Cloud CLI, Node.js 24, and `uv`.
+Installs `git`, the Google Cloud CLI, Node.js 24, and `uv`. The `agy` command line tool is not
+installed: the labs run in the Antigravity IDE and nothing in them calls it.
 
 ### macOS
 
@@ -121,18 +122,7 @@ Three details that matter:
 
 ---
 
-## Step 3 — The `agy` CLI
-
-```bash
-curl -fsSL https://antigravity.google/cli/install.sh | bash
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc   # ~/.bashrc on Linux/WSL2
-exec "$SHELL"
-agy --version
-```
-
----
-
-## Step 4 — Make the lab skills portable
+## Step 3 — Make the lab skills portable
 
 The bundled skills in `skills/` are already published portable, so normally there is nothing to do.
 Confirm:
@@ -159,7 +149,7 @@ echo 'export NOVASMART_SCORECARD_HOME="$HOME"' >> ~/.zshrc   # ~/.bashrc on Linu
 
 ---
 
-## Step 5 — Create the session folders
+## Step 4 — Create the session folders
 
 Antigravity works on a folder. Each session folder is a self-contained workspace with its own copy
 of the skills, matching the lab VM's layout.
@@ -187,7 +177,7 @@ done
 
 ---
 
-## Step 6 — Register the skills
+## Step 5 — Register the skills
 
 ```bash
 cd ~/Desktop/Session1
@@ -207,7 +197,7 @@ read the `info` output.
 
 ---
 
-## Step 7 — Google Cloud
+## Step 6 — Google Cloud
 
 ```bash
 gcloud auth login
@@ -232,7 +222,7 @@ closes.
 
 ---
 
-## Step 8 — Check it worked
+## Step 7 — Check it worked
 
 ```bash
 bash setup/verify.sh --readiness

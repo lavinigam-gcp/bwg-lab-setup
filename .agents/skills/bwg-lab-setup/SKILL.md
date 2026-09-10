@@ -70,7 +70,7 @@ each repair, and keep going until it returns 0 or you are blocked on a human.
 | `lab-skills` SKIP | The session folders are empty. The skills ARE bundled in this repo, so this means the sessions step did not run | `install.sh --only sessions` |
 | `lab-skill` MISSING | A skills source was given but the copy did not land, or is nested too deep | `install.sh --only sessions --skills-src DIR`, then confirm each skill has `SKILL.md` at its own top level |
 | `node`, `gcloud` MISSING | Tool step did not complete | `install.sh --only tools` |
-| `agy` MISSING | CLI not on PATH | `install.sh --only agy`, then add `~/.local/bin` to PATH |
+| user asks about `agy` | Not installed by design; the labs run in the IDE | Say so; do not install it |
 | exit 3 | No virtual environment | `install.sh --only python` |
 
 TROUBLESHOOTING.md in the repository root lists every known failure by operating system; consult

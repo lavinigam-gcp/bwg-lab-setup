@@ -16,7 +16,7 @@ PY_VERSION="3.14"
 SESSIONS=(Session1 Session2 Session3)
 LAB_SKILLS=(novasmart-governance-lab)
 DEMO_SKILLS=(build-demo bwgtrack2-demo-build)
-ALL_STEPS=(tools python agy skills sessions register)
+ALL_STEPS=(tools python skills sessions register)
 
 DRY=0; ONLY=""; ASSUME_YES=0; FORCE=0; WITH_EXTRAS=0; SKIP_PREFLIGHT=0
 LOG="$LAB_HOME/install.log"
@@ -96,7 +96,7 @@ need() { command -v "$1" >/dev/null 2>&1; }
 
 # ---------- steps ----------
 step_tools() {
-  say "Step 1/6  Install the tools  ($OS/$ARCH)"
+  say "Step 1/5  Install the tools  ($OS/$ARCH)"
   if [ "$PKG" = brew ]; then
     need brew || die "Homebrew is required on macOS: https://brew.sh"
     need git    || run brew install git
@@ -136,7 +136,7 @@ step_tools() {
 }
 
 step_python() {
-  say "Step 2/6  The Python environment"
+  say "Step 2/5  The Python environment"
   run mkdir -p "$LAB_HOME"
   if [ -d "$LAB_HOME/.venv" ] && [ "$FORCE" != 1 ]; then
     info "venv exists — reusing it (--force to rebuild)"
@@ -169,15 +169,8 @@ step_python() {
   fi
 }
 
-step_agy() {
-  say "Step 3/6  The agy CLI"
-  if need agy; then info "agy already installed: $(agy --version 2>/dev/null || echo '?')"; return 0; fi
-  run bash -c 'curl -fsSL https://antigravity.google/cli/install.sh | bash'
-  export PATH="$HOME/.local/bin:$PATH"
-}
-
 step_skills() {
-  say "Step 4/6  Prepare the lab skills"
+  say "Step 3/5  Prepare the lab skills"
   if [ -z "$LAB_SKILLS_SRC" ]; then
     info "no skills/ directory in this repo and no --skills-src given - skipping."
     info "Re-run with:  install.sh --only skills --skills-src /path/to/skills"
@@ -217,7 +210,7 @@ step_skills() {
 }
 
 step_sessions() {
-  say "Step 5/6  Create the session folders"
+  say "Step 4/5  Create the session folders"
   for s in "${SESSIONS[@]}"; do
     run mkdir -p "$LAB_ROOT/Desktop/$s/.agents/skills"
   done
@@ -246,7 +239,7 @@ step_sessions() {
 }
 
 step_register() {
-  say "Step 6/6  Register the skills"
+  say "Step 5/5  Register the skills"
   local py="$LAB_HOME/.venv/bin"
   grep -q NOVASMART_SCORECARD_HOME "$HOME/.bashrc" "$HOME/.zshrc" 2>/dev/null \
     || info "add to your shell profile:  export NOVASMART_SCORECARD_HOME=\"$LAB_ROOT\""
