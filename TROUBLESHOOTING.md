@@ -303,6 +303,66 @@ ls ~/Desktop/build-with-gemini/.agents/skills
 That repository can change at any time without notice to this one. If the layout genuinely moved,
 report it rather than editing the checks to pass.
 
+Do **not** run `--force` here. It moves your project folder aside and fetches the same upstream
+again, so it destroys your working context and fixes nothing: these rows fire because upstream
+changed shape, not because your copy is damaged. If you want a clean copy to compare against, put
+it somewhere else and keep yours where it is:
+
+```bash
+bash setup/install.sh --track 3 --only starterkit --kit-dir ~/Desktop/kit-fresh
+```
+
+**`kit` MISSING, but the folder is there and has a `.git` in it.**
+An earlier clone did not finish. A closed lid, a dropped conference network or a Ctrl-C leaves
+`.git` behind with no files checked out. That used to be reported as a healthy kit, and re-running
+changed nothing, which is the worst combination: a wedged machine that says it is fine. Both
+scripts now ask git instead of looking for a `.git` directory, so `verify.sh` reports it MISSING
+and the installer repairs it on the next run:
+
+```bash
+bash setup/install.sh --track 3 --only starterkit
+```
+
+The unusable directory is moved aside under a timestamped name, not deleted.
+
+**The installer says the folder is a clone of a different repository.**
+It is, and it is refusing to pretend otherwise. A mistyped `--kit-url`, or a folder that came from
+somewhere else, used to be accepted silently and reported as success. The installer now moves that
+directory aside and fetches the real kit. If the other repository is one you care about, move it
+somewhere safe first, or use `--kit-dir DIR` to put the kit elsewhere.
+
+**The installer stops with "cannot fetch ... from https://github.com/cszhu/build-with-gemini".**
+That upstream is a community repository this one does not control. If it is renamed, deleted or
+made private, the fetch fails. It now fails in about a second with that message. Previously git
+asked `Username for 'https://github.com':` and blocked on the terminal with nothing on screen to
+explain it, which on event day looked like a hang. Nothing is left half-applied, so re-running is
+safe. Point at a fork or an offline mirror to carry on:
+
+```bash
+bash setup/install.sh --track 3 --only starterkit --kit-url https://github.com/YOU/your-fork
+```
+
+**The kit I have is not at the pinned commit.**
+`install.sh` pins the kit to the `KIT_REF` commit at the top of `setup/install.sh`. When your folder
+already exists and sits on a different commit, the installer says so and changes nothing, because
+by then that folder is your project. Nothing is wrong with your machine. If you want the pinned
+state, fetch it into a new folder with `--kit-dir DIR` and move your work across yourself, or take
+a specific one with `--kit-ref`:
+
+```bash
+bash setup/install.sh --track 3 --only starterkit --kit-ref TAG --kit-dir ~/Desktop/kit-pinned
+```
+
+Pass `--kit-ref ""` to follow the default branch instead of the pin. The installer warns when you
+do, because it then takes whatever is there on the day.
+
+**`verify.sh` says `unknown option` and exits 64.**
+It means what it says: the flag is not one this script has. It used to ignore anything it did not
+recognise, so a mistyped `--trak`, or a bare `3` copied from the installer's own track prompt, ran
+the **Track 2** profile on a Track 3 laptop and then reported missing session folders and a missing
+governance-lab skill. Every remedy that output offered made the machine worse. Run
+`bash setup/verify.sh --help` for the real list.
+
 **The clone failed, or GitHub is blocked.**
 `preflight.sh` probes `github.com`, so check its report card first. Note that the Linux `gh`
 install uses a **different host**, `cli.github.com`, which preflight does not probe. A network that
@@ -311,8 +371,10 @@ release binary by hand, if the apt repository is unreachable.
 
 **I already started building, and I want to re-run the installer.**
 Re-running is safe. `install.sh --track 3` leaves an existing clone alone and says so. Do **not**
-reach for `--force` expecting a refresh: it moves your directory aside under a timestamped name and
-clones a fresh one, which leaves you with two copies to reconcile. Nothing is deleted either way.
+reach for `--force` expecting a refresh: it moves your directory aside under a timestamped name,
+with everything you have built in it, and fetches a fresh one, which leaves you with two copies to
+reconcile. It warns twice and names where your work went, but the better command is `--kit-dir DIR`
+into a new folder, which leaves yours untouched. Nothing is deleted either way.
 
 **The kit's skills do not appear in Antigravity.**
 Cloning the kit is all the registration it needs, because Antigravity reads the `.agents/` folder

@@ -11,7 +11,9 @@ jobs:
         run: for f in setup/*.sh; do bash -n "$f"; done
 
       - name: shellcheck
-        run: sudo apt-get update && sudo apt-get install -y shellcheck && shellcheck -S warning setup/*.sh || true
+        # No `|| true`. A lint step that cannot fail the build is decoration. All three
+        # scripts are clean at -S warning today, so this holds the line where it is.
+        run: sudo apt-get update && sudo apt-get install -y shellcheck && shellcheck -S warning setup/*.sh
 
       - name: preflight runs and reports
         run: bash setup/preflight.sh || [ $? -le 2 ]
@@ -84,16 +86,128 @@ jobs:
           done
           echo "both profiles present"
 
+      - name: verify.sh actually runs, and the documented counts hold
+        run: |
+          # Grepping verify.sh for chk lines cannot tell you whether the script runs,
+          # whether --track 3 is even accepted, or whether "11 of 11" and "12 of 12" are
+          # real. Run it against a fixture and assert the totals the docs promise.
+          mkdir -p /tmp/fx/bin && ln -sf "$(command -v python3)" /tmp/fx/bin/python
+          mkdir -p /tmp/r2/Desktop/Session1/.agents/skills/novasmart-governance-lab
+          mkdir -p /tmp/r2/Desktop/Session2/.agents/skills /tmp/r2/Desktop/Session3/.agents/skills
+          touch /tmp/r2/Desktop/Session1/.agents/skills/novasmart-governance-lab/SKILL.md
+          mkdir -p /tmp/kit/.agents/skills/publish-to-github
+          git init -q /tmp/kit
+          git -C /tmp/kit remote add origin https://github.com/cszhu/build-with-gemini
+          git -C /tmp/kit -c user.email=ci@ci -c user.name=ci commit -q --allow-empty -m fixture
+          touch /tmp/kit/.agents/mcp_config.json /tmp/kit/.agents/skills/publish-to-github/publish.sh
+          t2=$(bash setup/verify.sh --json --track 2 --venv /tmp/fx --root /tmp/r2 \
+               | python3 -c 'import json,sys;print(json.load(sys.stdin)["total"])')
+          t3=$(bash setup/verify.sh --json --track 3 --venv /tmp/fx --kit-dir /tmp/kit \
+               | python3 -c 'import json,sys;print(json.load(sys.stdin)["total"])')
+          [ "$t2" = 11 ] || { echo "Track 2 runs $t2 checks, the docs promise 11"; exit 1; }
+          [ "$t3" = 12 ] || { echo "Track 3 runs $t3 checks, the docs promise 12"; exit 1; }
+          echo "verify runs: track2=$t2 track3=$t3"
+
+      - name: verify.sh refuses an unknown flag instead of guessing
+        run: |
+          # A mistyped --trak used to fall through the case and run the Track 2 profile
+          # on a Track 3 laptop, then recommend remedies that made that machine worse.
+          if bash setup/verify.sh --trak 3 --venv /tmp/fx >/dev/null 2>&1; then
+            echo "verify.sh silently accepted an unknown flag"; exit 1; fi
+          bash setup/verify.sh --trak 3 --venv /tmp/fx 2>&1 | grep -q "unknown option" \
+            || { echo "verify.sh rejected the flag without saying why"; exit 1; }
+          if bash setup/verify.sh 3 --venv /tmp/fx >/dev/null 2>&1; then
+            echo "verify.sh silently accepted a bare positional argument"; exit 1; fi
+          bash setup/verify.sh --help >/dev/null || { echo "--help broke"; exit 1; }
+          echo "unknown flags are refused, --help still works"
+
+      - name: an interrupted clone is not reported as a healthy kit
+        run: |
+          # A .git directory with no checkout is what a clone killed by a closed lid
+          # leaves behind. The `kit` check used to call that OK, which was a false pass
+          # on the one machine that could not run the lab at all.
+          rm -rf /tmp/broken && mkdir -p /tmp/broken/.git && echo junk > /tmp/broken/.git/HEAD
+          s=$(bash setup/verify.sh --json --track 3 --venv /tmp/fx --kit-dir /tmp/broken \
+              | python3 -c 'import json,sys;print([c["status"] for c in json.load(sys.stdin)["checks"] if c["name"]=="kit"][0])')
+          [ "$s" = MISSING ] || { echo "kit reported $s on a .git-only directory"; exit 1; }
+          echo "a broken clone reports kit=$s"
+
+      - name: an explicit --venv is not overridden by an active virtualenv
+        run: |
+          # Reporting on a venv the operator did not name is a false pass against the
+          # one path they actually asked about.
+          # || true: verify.sh correctly exits 3 here, because the named venv does not
+          # exist. Exit 3 is the point of the test, so it must not abort the step.
+          out=$(VIRTUAL_ENV=/tmp/fx bash setup/verify.sh --json --venv /tmp/nosuchvenv 2>&1 || true)
+          case "$out" in
+            *nosuchvenv*) echo "an explicit --venv is respected" ;;
+            *) echo "--venv was silently overridden: $out"; exit 1 ;;
+          esac
+
+      - name: no fix hint tells the user to --force over their own project
+        run: |
+          # --force moves the Track 3 kit folder aside, and by mid-lab that folder is
+          # the attendee's work. Match a recommendation to RUN it, "install.sh ...
+          # --force", rather than the bare word: two of these hints now say "Do not
+          # --force over your work", which is the guidance and not the bug.
+          if grep -nE 'chk (kit|kit-skills|kit-mcp|kit-publish) .*install\.sh[^"]*--force' setup/verify.sh; then
+            echo "a Track 3 fix hint still recommends --force"; exit 1; fi
+          echo "no starterkit hint recommends --force"
+
       - name: track 3 dry-run completes and fetches the starter kit
         run: |
           bash setup/install.sh --dry-run --yes --track 3 --root /tmp/ci3 > /tmp/dry3.out 2>&1
           grep -q "Done. Now run" /tmp/dry3.out \
             || { echo "track 3 dry-run did not reach the end"; cat /tmp/dry3.out; exit 1; }
-          grep -q "git clone .* /tmp/ci3/Desktop/build-with-gemini" /tmp/dry3.out \
-            || { echo "track 3 did not clone the starter kit"; cat /tmp/dry3.out; exit 1; }
+          grep -q "git -C /tmp/ci3/Desktop/build-with-gemini fetch --depth 1 origin" /tmp/dry3.out \
+            || { echo "track 3 did not fetch the starter kit"; cat /tmp/dry3.out; exit 1; }
           grep -q "apt-get install -y google-cloud-cli nodejs gh" /tmp/dry3.out \
             || { echo "track 3 did not install gh"; cat /tmp/dry3.out; exit 1; }
           test ! -d /tmp/ci3
+
+      - name: the starter kit is pinned, and the pin is what gets fetched
+        run: |
+          # An unpinned --depth 1 clone of a community default branch is the whole of
+          # M4. Assert that a pin exists, that it is a real object upstream, and that
+          # the dry run actually fetches that exact ref rather than a moving branch.
+          ref=$(sed -n 's/^KIT_REF="\${KIT_REF:-\(.*\)}"$/\1/p' setup/install.sh)
+          [ -n "$ref" ] || { echo "KIT_REF has no default - the kit is unpinned"; exit 1; }
+          echo "pinned to $ref"
+          grep -q "fetch --depth 1 origin $ref" /tmp/dry3.out \
+            || { echo "the dry run does not fetch the pin"; cat /tmp/dry3.out; exit 1; }
+          if grep -q "git clone" /tmp/dry3.out; then
+            echo "still using git clone, which cannot pin to a commit"; exit 1; fi
+          url=$(sed -n 's/^KIT_URL="\${KIT_URL:-\(.*\)}"$/\1/p' setup/install.sh)
+          GIT_TERMINAL_PROMPT=0 git ls-remote --exit-code "$url" >/dev/null \
+            || { echo "cannot reach $url"; exit 1; }
+          rm -rf /tmp/pin && git init -q /tmp/pin && git -C /tmp/pin remote add origin "$url"
+          GIT_TERMINAL_PROMPT=0 git -C /tmp/pin fetch --depth 1 origin "$ref" \
+            || { echo "the pinned ref $ref no longer exists in $url"; exit 1; }
+          git -C /tmp/pin checkout -q --detach FETCH_HEAD
+          # The two upstream paths verify.sh asserts must exist at the pin, or a correct
+          # machine fails kit-mcp and kit-publish on the day.
+          for p in .agents/mcp_config.json .agents/skills/publish-to-github/publish.sh; do
+            test -f "/tmp/pin/$p" || { echo "the pin is missing $p, which verify.sh asserts"; exit 1; }
+          done
+          echo "the pin exists upstream and still has the layout verify.sh expects"
+
+      - name: --kit-url and --kit-dir still work, and --kit-ref can be emptied
+        run: |
+          bash setup/install.sh --dry-run --yes --track 3 --only starterkit \
+            --kit-url https://example.invalid/fork --kit-dir /tmp/elsewhere/kit \
+            > /tmp/kitflags.out 2>&1
+          grep -q "remote add origin https://example.invalid/fork" /tmp/kitflags.out \
+            || { echo "--kit-url was ignored"; cat /tmp/kitflags.out; exit 1; }
+          grep -q "git -C /tmp/elsewhere/kit" /tmp/kitflags.out \
+            || { echo "--kit-dir was ignored"; cat /tmp/kitflags.out; exit 1; }
+          bash setup/install.sh --dry-run --yes --track 3 --only starterkit \
+            --kit-ref "" --root /tmp/ci-unpin > /tmp/unpin.out 2>&1
+          grep -q "fetch --depth 1 origin HEAD" /tmp/unpin.out \
+            || { echo "an empty --kit-ref no longer follows the default branch"; cat /tmp/unpin.out; exit 1; }
+          grep -q "kit-ref is empty" /tmp/unpin.out \
+            || { echo "an empty --kit-ref should say so out loud"; cat /tmp/unpin.out; exit 1; }
+          test ! -d /tmp/elsewhere
+          echo "kit flags still work"
 
       - name: no --track means Track 2, unchanged
         run: |
@@ -160,3 +274,102 @@ jobs:
           print("broken links:", bad or "none")
           sys.exit(1 if bad else 0)
           PY
+
+      - name: every flag the docs mention actually exists
+        run: |
+          # The README once advertised a Track 3 the code did not have. Assert the docs
+          # against the real argument parsers rather than against a hand-written list of
+          # stale strings, which only ever catches the last bug and never the next one.
+          python3 - <<'PY'
+          import re, sys
+          accepted = {}
+          for s in ("install", "verify", "preflight"):
+              src = open(f"setup/{s}.sh").read()
+              # \bdone\b, not ^done: preflight.sh writes its whole parser on one line
+              # and ends it with "esac; shift; done".
+              m = re.search(r'while \[ \$# -gt 0 \];.*?\bdone\b', src, re.S)
+              if not m:
+                  print(f"setup/{s}.sh has no recognisable argument parser")
+                  sys.exit(1)
+              accepted[s] = set(re.findall(r'(--[a-z-]+)[)|]', m.group(0)))
+          bad = []
+          for d in ("README.md", "manual_setup.md", "TROUBLESHOOTING.md",
+                    ".agents/skills/bwg-lab-setup/SKILL.md"):
+              for i, line in enumerate(open(d), 1):
+                  for s in accepted:
+                      for hit in re.finditer(
+                              rf'{s}\.sh((?:\s+--[a-z-]+(?:\s+[^\s#`|)]+)?)*)', line):
+                          for f in re.findall(r'(--[a-z-]+)', hit.group(1)):
+                              if f not in accepted[s]:
+                                  bad.append(f"{d}:{i}  {s}.sh has no {f}")
+          print("\n".join(bad) or "every documented flag exists")
+          sys.exit(1 if bad else 0)
+          PY
+
+  macos:
+    # The brew branch of step_tools is half the supported platforms, and until now no
+    # job anywhere touched it. That is the direct reason Track 3 shipped without a gh
+    # install on macOS: the code was written by analogy with the Linux path, nobody on
+    # the project has a Mac, and nothing could contradict it. A dry run on a real macOS
+    # runner turns that from an unverifiable claim into a gated one.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: syntax
+        run: for f in setup/*.sh; do bash -n "$f"; done
+
+      - name: shellcheck
+        # `|| brew list`: brew exits non-zero on some images when the formula is
+        # already present, which is not a reason to fail the build.
+        run: (brew install shellcheck || brew list shellcheck) && shellcheck -S warning setup/*.sh
+
+      - name: hide the preinstalled gh
+        run: |
+          # This image ships gh. An attendee's laptop does not. Left as it is, `need gh`
+          # would be true, the brew branch would correctly print nothing, and the
+          # assertion below would pass while proving nothing at all. Rename the binary
+          # for the rest of this ephemeral job so the dry run sees the machine the lab
+          # actually has to cope with.
+          for _ in 1 2 3; do
+            p="$(command -v gh || true)"
+            [ -n "$p" ] || break
+            sudo mv "$p" "$p.hidden-for-ci"
+          done
+          if command -v gh >/dev/null 2>&1; then
+            echo "gh is still on PATH, the rest of this job would prove nothing"; exit 1; fi
+          echo "gh is hidden"
+
+      - name: track 3 on macOS installs gh
+        run: |
+          bash setup/install.sh --dry-run --yes --track 3 \
+            --root "$RUNNER_TEMP/m3" > "$RUNNER_TEMP/m3.out" 2>&1
+          cat "$RUNNER_TEMP/m3.out"
+          grep -q "Done. Now run" "$RUNNER_TEMP/m3.out" \
+            || { echo "macOS Track 3 dry-run did not reach the end"; exit 1; }
+          grep -q "brew install gh" "$RUNNER_TEMP/m3.out" \
+            || { echo "macOS Track 3 still does not install gh"; exit 1; }
+          grep -q "fetch --depth 1 origin" "$RUNNER_TEMP/m3.out" \
+            || { echo "macOS Track 3 does not fetch the starter kit"; exit 1; }
+          test ! -d "$RUNNER_TEMP/m3"
+
+      - name: track 2 on macOS does not install gh
+        run: |
+          bash setup/install.sh --dry-run --yes --track 2 \
+            --root "$RUNNER_TEMP/m2" > "$RUNNER_TEMP/m2.out" 2>&1
+          if grep -q "brew install gh" "$RUNNER_TEMP/m2.out"; then
+            echo "Track 3 content leaked into Track 2 on macOS"; exit 1; fi
+          grep -q "Step 5/5  Register the skills" "$RUNNER_TEMP/m2.out" \
+            || { echo "macOS Track 2 is no longer the 5-step run"; cat "$RUNNER_TEMP/m2.out"; exit 1; }
+          test ! -d "$RUNNER_TEMP/m2"
+
+      - name: the macOS log timestamp is not a GNU-only date
+        run: |
+          # date -Is is GNU only. On BSD date every logged line got an empty timestamp
+          # and a "date: illegal option -- I" on stderr, on the one platform that was
+          # already failing hardest.
+          if grep -q 'date -Is' setup/install.sh; then
+            echo "date -Is is back, and BSD date has no -I"; exit 1; fi
+          date -u +%Y-%m-%dT%H:%M:%SZ >/dev/null \
+            || { echo "the replacement timestamp does not work on BSD date"; exit 1; }
+          echo "timestamp format is portable: $(date -u +%Y-%m-%dT%H:%M:%SZ)"

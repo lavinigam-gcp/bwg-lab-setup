@@ -30,6 +30,19 @@ TRACK_STEPS=()
 # at a fork or an offline mirror if you do not want to fetch the upstream copy.
 KIT_URL="${KIT_URL:-https://github.com/cszhu/build-with-gemini}"
 KIT_DIR="${KIT_DIR:-}"                 # resolved after the flags: it depends on --root
+# The kit is PINNED. A --depth 1 clone of somebody else's default branch is not a thing
+# to run in front of a room: upstream can change shape, or disappear, on the morning of
+# the event, and nobody here gets a notification when it does. KIT_REF is the exact
+# upstream commit this lab has been rehearsed against.
+#
+# To bump it: read the upstream diff, rehearse Track 3 end to end against the new
+# commit, then replace the SHA below and the line under it. Nothing else has to move.
+# A full commit SHA, a tag or a branch name all work. Set it to the empty string, or
+# pass --kit-ref "", to follow the default branch instead and take whatever is there.
+KIT_REF="${KIT_REF:-cdd68490e7df168ba09678e484db94b36e624af9}"
+# ^ cszhu/build-with-gemini, default branch as of 2026-09-25. Ships 8 skills, and has
+#   both of the upstream paths verify.sh asserts: .agents/mcp_config.json and
+#   .agents/skills/publish-to-github/publish.sh.
 
 DRY=0; ONLY=""; ASSUME_YES=0; FORCE=0; WITH_EXTRAS=0; SKIP_PREFLIGHT=0
 TRACK="${BWG_TRACK:-}"
@@ -44,7 +57,9 @@ Usage: install.sh [options]
   --only STEP        run one step: ${ALL_STEPS[*]}
                      --only starterkit implies --track 3 when no track is given
   --with-extras      also install ffmpeg, VS Code, Playwright's browser
-  --force            overwrite an existing venv or session folders
+  --force            rebuild an existing venv, or overwrite existing session folders.
+                     On Track 3 it also moves an existing starter-kit folder aside,
+                     with any work you have done in it, and fetches the kit again
   --yes              do not prompt (does NOT override a preflight NO-GO)
   --skip-preflight   do not run preflight first
   --root DIR         parent of Desktop/SessionN (default: \$HOME)
@@ -53,6 +68,9 @@ Usage: install.sh [options]
                      (default: \$LAB_ROOT/Desktop/build-with-gemini)
   --kit-url URL      Track 3 only: the starter kit repository, a community repo
                      (default: $KIT_URL)
+  --kit-ref REF      Track 3 only: the commit, tag or branch of the starter kit to
+                     check out. Pass an empty string to follow the default branch
+                     instead of the pin (default: $KIT_REF)
   -h, --help
 EOF
 }
@@ -70,6 +88,9 @@ while [ $# -gt 0 ]; do
     --track) TRACK="${2:?--track needs 2 or 3}"; shift ;;
     --kit-dir) KIT_DIR="${2:?--kit-dir needs a directory}"; shift ;;
     --kit-url) KIT_URL="${2:?--kit-url needs a URL}"; shift ;;
+    # ${2?...} and not ${2:?...}: an empty --kit-ref is a real choice. It means
+    # "follow the default branch", which is what this script did before the pin.
+    --kit-ref) KIT_REF="${2?--kit-ref needs a commit, tag or branch}"; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "unknown option: $1" >&2; usage >&2; exit 64 ;;
   esac
@@ -94,7 +115,9 @@ die()  { printf '\n\033[31mfailed:\033[0m %s\n' "$*" >&2
 run() {
   if [ "$DRY" = 1 ]; then printf '    $ %s\n' "$*"; return 0; fi
   printf '    $ %s\n' "$*"
-  [ -d "$LAB_HOME" ] && printf '%s | %s\n' "$(date -Is)" "$*" >> "$LOG" 2>/dev/null || true
+  # date -Is is GNU only. BSD date, which is what macOS ships, has no -I, so every
+  # logged line there got an empty timestamp and a "date: illegal option" on stderr.
+  [ -d "$LAB_HOME" ] && printf '%s | %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >> "$LOG" 2>/dev/null || true
   "$@"
 }
 
@@ -176,6 +199,15 @@ step_tools() {
       export PATH="$nodebin:$PATH"
       info "node@24 is keg-only. Added to PATH for this run; make it permanent with:"
       info "  echo 'export PATH=\"$nodebin:\$PATH\"' >> ~/.zshrc"
+    fi
+    # Track 3 only, and the mirror of the apt branch below. gh used to be installed on
+    # the apt side and nowhere else, so every Mac attendee finished install.sh without
+    # it, verify.sh --track 3 reported "gh MISSING", and the fix hint it printed pointed
+    # back at this step, which did nothing for them. brew is the documented manual
+    # equivalent in manual_setup.md. See the note above step_starterkit for why gh is
+    # installed here rather than left to the kit's own publish script.
+    if [ "$TRACK" = 3 ]; then
+      need gh || run brew install gh
     fi
     if [ "$IS_INTEL_MAC" = 1 ] && ! need cargo; then
       warn "Intel Mac: 'cryptography' has no Intel wheel and must be compiled."
@@ -336,22 +368,82 @@ step_sessions() {
 # lab, when a room full of people is on the same network and short of time. Installing
 # it up front moves that download off the critical path and puts gh on PATH properly.
 # The kit's fetch is guarded by `command -v gh`, so doing it here makes that a no-op.
+
+# A .git directory is not a usable clone. A clone killed part-way through, by a closed
+# lid, a dropped conference network or a Ctrl-C, leaves $KIT_DIR/.git behind with no
+# checkout, and "is there a .git" then calls that healthy forever with no way out.
+# Ask git instead. verify.sh's `kit` check applies the same test, so the installer and
+# the checker can never disagree about whether this folder is usable.
+kit_state() { # prints: absent | notgit | broken | wrongremote | ok
+  [ -e "$KIT_DIR" ] || { echo absent; return 0; }
+  [ -d "$KIT_DIR/.git" ] || { echo notgit; return 0; }
+  git -C "$KIT_DIR" rev-parse --verify HEAD >/dev/null 2>&1 || { echo broken; return 0; }
+  local origin; origin="$(git -C "$KIT_DIR" remote get-url origin 2>/dev/null || true)"
+  [ "${origin%.git}" = "${KIT_URL%.git}" ] || { echo wrongremote; return 0; }
+  echo ok
+}
+
 step_starterkit() {
   heading starterkit "Fetch the Track 3 starter kit"
   info "source: $KIT_URL"
   info "this is a community repository - it is not maintained by this repo and not an official Google product"
-  if [ -d "$KIT_DIR/.git" ] && [ "$FORCE" != 1 ]; then
+  local state; state="$(kit_state)"
+  case "$state" in
+    broken)      warn "$KIT_DIR has a .git but no checkout - an earlier clone did not finish. Fetching it again." ;;
+    wrongremote) warn "$KIT_DIR is a clone of a different repository, not $KIT_URL. Fetching it again." ;;
+  esac
+  if [ "$state" = ok ] && [ "$FORCE" != 1 ]; then
     info "starter kit already at $KIT_DIR — reusing it (--force to move it aside and re-clone)"
+    # Reuse never moves an existing checkout to the pin. By mid-lab this folder is the
+    # attendee's project, and checking out a different commit under them is exactly the
+    # kind of thing --force is criticised for. Say it does not match, and stop there.
+    if [ "$DRY" != 1 ] && printf '%s' "$KIT_REF" | grep -qE '^[0-9a-f]{40}$'; then
+      local at; at="$(git -C "$KIT_DIR" rev-parse HEAD 2>/dev/null || true)"
+      [ "$at" = "$KIT_REF" ] \
+        || info "that copy is at ${at:-an unknown commit}, not the pinned $KIT_REF. Leaving it alone - pass --kit-dir DIR to fetch the pinned copy somewhere else"
+    fi
   else
     # Never delete this directory. Once the lab starts it holds the participant's own
-    # work, so --force moves it out of the way instead of removing it.
+    # work, so it is moved out of the way rather than removed. Say where it went, and
+    # say it twice: by the day of the event this is somebody's project folder.
     if [ -e "$KIT_DIR" ]; then
       local aside; aside="$KIT_DIR.superseded.$(date +%Y%m%d%H%M%S)"
-      info "$KIT_DIR exists and is not a clone - moving it aside, nothing is deleted"
+      warn "moving $KIT_DIR aside to $aside - nothing is deleted"
+      warn "anything you had built in $KIT_DIR is now in $aside"
       run mv "$KIT_DIR" "$aside"
     fi
     run mkdir -p "$(dirname "$KIT_DIR")"
-    run git clone --depth 1 "$KIT_URL" "$KIT_DIR"
+    # Two things here are deliberate, and neither is what a plain `git clone` does.
+    #
+    # GIT_TERMINAL_PROMPT=0 and GIT_ASKPASS=true are the event-day guard. If this
+    # community repository is renamed, deleted or made private, an anonymous fetch gets
+    # a 401 and git asks "Username for 'https://github.com':" on the terminal, where it
+    # blocks forever with nothing on screen to search for. --yes does not help: it gates
+    # this script's own prompt, not git's. With these two set the same case fails in
+    # about a second, and we get to say something useful about it.
+    #
+    # init, fetch, checkout, rather than `git clone --branch`, is what lets KIT_REF be a
+    # commit SHA. --branch accepts only a tag or a branch, and a tag in a repository we
+    # do not control can be moved after we rehearse against it. Two extra commands buy a
+    # pin that upstream cannot change under us.
+    local ref="$KIT_REF"
+    if [ -n "$ref" ]; then
+      info "pinned to $ref"
+    else
+      ref=HEAD
+      warn "--kit-ref is empty - taking whatever is on the default branch of $KIT_URL today"
+    fi
+    run git init -q "$KIT_DIR"
+    run git -C "$KIT_DIR" remote add origin "$KIT_URL"
+    run env GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=true \
+        git -C "$KIT_DIR" fetch --depth 1 origin "$ref" || {
+      # This directory was created seconds ago and holds no work of anyone's, so clear
+      # it rather than leave an empty shell for the next run to move aside.
+      run rm -rf "${KIT_DIR:?}"
+      warn "nothing was left half-applied - re-running this step is safe"
+      die "cannot fetch $ref from $KIT_URL. Check your network, or pass --kit-url pointing at a fork or an offline mirror, or --kit-ref naming a commit that exists. This repository does not control that upstream."
+    }
+    run git -C "$KIT_DIR" checkout -q --detach FETCH_HEAD
   fi
   if [ "$DRY" = 1 ]; then
     info "the kit ships its skills under .agents/skills/ - Antigravity loads them when you open the folder"
@@ -417,11 +509,16 @@ gate() {
   if [ "$TRACK" = 3 ]; then
     echo "    - install the GitHub CLI (gh), which Track 3 needs to publish your project"
     echo "    - clone the community Track 3 starter kit into $KIT_DIR"
-    echo "      from $KIT_URL, which this repository does not maintain"
+    echo "      from $KIT_URL, which this repository does not maintain,"
+    echo "      pinned at ${KIT_REF:-whatever its default branch holds today}"
   else
     echo "    - create session folders under $LAB_ROOT/Desktop/"
+    echo "    - print one export line for you to add to your shell profile yourself"
   fi
-  echo "    - append to your shell profile"
+  # This used to promise a shell-profile edit. step_register only ever printed a line
+  # for the user to copy, and on Track 3 it does not print even that. Over-disclosing on
+  # a consent screen is the safe direction to be wrong in, but it is still wrong.
+  echo "  It edits no shell profile of yours."
   echo "  Nothing outside those paths is touched. Re-runnable and idempotent."
   echo
   if [ "$ASSUME_YES" = 1 ]; then

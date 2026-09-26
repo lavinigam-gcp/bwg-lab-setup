@@ -8,53 +8,32 @@ to Track 2 when there is no terminal to ask on. See [Which track](#which-track).
 
 ---
 
-## ⚠️ Read this before you run anything
+## Before you run anything
 
-**This is not an official Google product, project, or repository.** It is an independent, personal
-project. It is not created, endorsed, sponsored, supported, or maintained by Google LLC or any of
-its affiliates. Nothing in this repository represents the views of Google, and no Google warranty,
-service level, or support commitment applies to it.
+**This is not an officially supported Google product.** It is a personal project. Google does not
+create, endorse, sponsor, support, or maintain it, nothing in it represents the views of Google, and
+no Google warranty or support commitment applies.
 
-**Use the lab-provided virtual machine instead.** The VM is the supported, tested environment for
-this lab, and it is what you should use unless you have a specific reason not to. This repository
-exists only for experienced users who are comfortable administering their own machine, who have read
-these scripts, and who accept the risks of running them. If you are unsure whether that describes
-you, use the VM.
+**Use the lab-provided VM if you can.** It is the supported, tested environment for this lab. This
+repository is for people who are comfortable administering their own machine, have read these
+scripts, and accept the risks of running them.
 
 **These scripts change your computer.** They install system packages, add third-party package
-repositories and their signing keys, download and execute installer scripts from the internet,
-create and delete directories under your home directory, and append lines to your shell profile. On
-Linux and WSL2 they invoke `sudo` and therefore run commands with administrative privileges. Run
-`bash setup/install.sh --dry-run` to print every command before any of it executes.
+repositories and signing keys, download and run installer scripts from the internet, create and
+delete directories under your home directory, and append lines to your shell profile. On Linux and
+WSL2 they use `sudo`, so they run with administrative privileges. Run
+`bash setup/install.sh --dry-run` to print every command first, and back up anything you cannot
+afford to lose before you begin.
 
-**No warranty.** This software is provided on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF
-ANY KIND, either express or implied, including without limitation any warranties of TITLE,
-NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A PARTICULAR PURPOSE. See the
+**Versions are pinned and not maintained.** This repository is not monitored for security advisories
+and has no update mechanism. If a pinned package is later found to be vulnerable, you will get no
+notice here. Checking these pins against current advisories, and patching your machine afterwards,
+is your responsibility.
+
+**You run this at your own risk.** The software is provided "AS IS", without warranties or conditions
+of any kind. To the maximum extent permitted by law, neither the author nor any contributor is liable
+for any loss or damage that follows from using it, or from being unable to use it. See
 [LICENSE](LICENSE) for the governing terms.
-
-**You assume all risk, and all liability is disclaimed.** To the maximum extent permitted by
-applicable law, in no event shall the author, the copyright holder, or any contributor be liable to
-you for any direct, indirect, incidental, special, exemplary, or consequential damages of any
-character arising out of or in any way related to your use of, or inability to use, this software.
-This includes, without limitation, damages for loss of data, corruption or deletion of files,
-damage to or misconfiguration of an operating system, an unusable or unbootable device, loss of
-profits, business interruption, or any charges incurred against any cloud account — even if advised
-of the possibility of such damages.
-
-**Software versions are pinned and NOT actively maintained.** This repository installs specific,
-pinned versions of third-party software, and it is not monitored for security advisories. Those
-versions will age. A package pinned here today may be found to contain a security vulnerability
-tomorrow, and **no notice of any kind will be given to you** — there is no advisory feed, no
-security patching process, no update mechanism, and no commitment to publish a fix or to respond to
-one. Neither the author nor any contributor undertakes to track, disclose, remediate, or notify you
-of any vulnerability in this repository or in anything it installs. **Assessing, monitoring, and
-patching the software on your machine is entirely and solely your responsibility**, including
-checking these pins against current advisories before you run them and keeping the resulting
-installation up to date afterwards.
-
-**You are solely responsible** for deciding to run this software, for any changes it makes to any
-system you run it on, and for any consequences that follow. **Back up anything you cannot afford to
-lose before you begin.**
 
 ---
 
@@ -71,8 +50,10 @@ Node.js 24, and the `agents-cli` lifecycle skills. What differs is the lab conte
 | Command | `bash setup/install.sh --track 2` | `bash setup/install.sh --track 3` |
 | Lab content | The skills bundled in this repo's `skills/` | The Track 3 starter kit, cloned from GitHub |
 | Where you work | `~/Desktop/Session1`, `Session2`, `Session3` | `~/Desktop/build-with-gemini` |
-| Also installs | none | The GitHub CLI (`gh`), which the kit needs to publish your project |
+| Also installs | none | The GitHub CLI (`gh`), which the kit needs to publish your project. `brew` on macOS, `apt` on Linux and WSL2 |
+| Third-party code | none | The starter kit, pinned to one commit. `--kit-ref` changes it |
 | Verify with | `bash setup/verify.sh --readiness` | `bash setup/verify.sh --readiness --track 3` |
+| Checks run | 11 | 12 |
 
 If you do not pass `--track`, the installer asks you. When nothing can ask you, such as a pipe, a CI
 job, or `--dry-run`, it sets up **Track 2** and says so on stderr. Track 2 is unchanged in every
@@ -89,9 +70,20 @@ you. Read that repository before you run anything it ships, exactly as you shoul
 You can point somewhere else with `--kit-url URL`, for example at your own fork or an offline
 mirror, and change where it lands with `--kit-dir DIR`.
 
+**The kit is pinned to one commit.** Taking whatever sits on somebody else's default branch on the
+morning of a lab is not something this repository is willing to do, so `install.sh` fetches a single
+commit that has been rehearsed against. The pin is the `KIT_REF` variable at the top of
+`setup/install.sh`, next to `KIT_URL`, with a comment recording what it is and how to bump it. To
+use a different one, pass `--kit-ref COMMIT`, `--kit-ref TAG` or `--kit-ref BRANCH`. To go back to
+following the default branch, pass `--kit-ref ""`, and the installer will say out loud that it is
+taking whatever is there today.
+
 The clone is treated as **yours** from the moment it exists, because that is where you build your
-project. Re-running the installer leaves an existing clone alone. Even `--force` does not delete it:
-it moves the old directory aside with a timestamped name and clones a fresh one next to it.
+project. Re-running the installer leaves an existing clone alone, including when the pin has since
+moved: it tells you the two differ and changes nothing. Even `--force` does not delete anything. It
+moves the old directory aside with a timestamped name, says where it went, and fetches a fresh one
+next to it. Prefer `--kit-dir DIR` to fetch a clean copy somewhere else and keep your work where
+it is.
 
 You do **not** need to run anything to register the kit's skills. Antigravity reads the `.agents/`
 folder of whatever workspace you open, so opening the cloned folder is what loads them.
@@ -263,17 +255,26 @@ setup/preflight.sh [--json]
   exit 0 GO · 1 GO WITH CAVEATS · 2 NO-GO · 3 could not assess
 
 setup/install.sh [options]
-  --dry-run          print every command, change nothing
-  --only STEP        run one step: tools python skills sessions register
+  --track {2,3}      which track to set up. Without it the installer asks, and
+                     falls back to Track 2 when there is no terminal to ask on
+  --dry-run          print every command, change nothing (never asks for a track)
+  --only STEP        run one step: tools python skills sessions register starterkit
   --with-extras      also install ffmpeg, VS Code, Playwright's browser
-  --force            rebuild an existing virtual environment
+  --force            rebuild an existing virtual environment or session folders.
+                     On Track 3 it also moves an existing starter-kit folder aside,
+                     with your work in it, and fetches the kit again
   --yes              do not prompt (does NOT override a preflight NO-GO)
   --skip-preflight   do not run preflight first
   --root DIR         parent of Desktop/SessionN (default: $HOME)
   --skills-src DIR   use lab skills from elsewhere instead of the bundled copy
+  --kit-dir DIR      Track 3: where to put the starter kit
+  --kit-url URL      Track 3: the starter kit repository, a community repo
+  --kit-ref REF      Track 3: the commit, tag or branch to check out. Empty
+                     follows the default branch instead of the pin
 
-setup/verify.sh [--json] [--fix-hints] [--readiness]
-  exit 0 all pass · 1 drift · 2 missing · 3 no virtual environment
+setup/verify.sh [--json] [--fix-hints] [--readiness] [--track {2,3}]
+                [--root DIR] [--lab-home DIR] [--venv DIR] [--kit-dir DIR]
+  exit 0 all pass · 1 drift · 2 missing · 3 no virtual environment · 64 bad flag
 ```
 
 The Python set is installed with `--no-deps`, because `requirements-lock.txt` is the complete

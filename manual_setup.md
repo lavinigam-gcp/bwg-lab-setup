@@ -225,10 +225,22 @@ Track 3's lab content is not in this repository. It lives in a **separate commun
 <https://github.com/cszhu/build-with-gemini>. That repository is not maintained by this one, and it
 is not an official Google product. Read it before you run anything it ships.
 
+`install.sh` pins this kit to one rehearsed commit rather than taking whatever is on its default
+branch that day. Do the same by hand. The commit below is the pin; the authoritative copy is the
+`KIT_REF` variable at the top of `setup/install.sh`, so read it from there if the two ever disagree.
+
 ```bash
-mkdir -p ~/Desktop
-git clone --depth 1 https://github.com/cszhu/build-with-gemini ~/Desktop/build-with-gemini
+mkdir -p ~/Desktop/build-with-gemini
+cd ~/Desktop/build-with-gemini
+git init -q
+git remote add origin https://github.com/cszhu/build-with-gemini
+git fetch --depth 1 origin cdd68490e7df168ba09678e484db94b36e624af9
+git checkout --detach FETCH_HEAD
 ```
+
+`git clone --depth 1` is the shorter command, and it is what this guide used to say, but it can only
+take a branch. A branch moves. Use it only if you have decided you want the latest state of a
+repository nobody here controls.
 
 Confirm what arrived:
 
@@ -314,8 +326,15 @@ bash setup/verify.sh --readiness --track 3    # Track 3
 ```
 
 Expect **11 of 11 checks OK** on Track 2, or **12 of 12** on Track 3, and a readiness summary.
+
+On Track 2, two of those eleven cover the lab skills, which ship separately from this repository.
+If none are installed, those two collapse into a single `SKIP` row that is not counted, and the
+script prints **9 of 9 checks OK**. That is a correct software-only setup, not a failure.
+
 Pass the right `--track`: the Track 2 profile checks for session folders and the governance-lab
-skill, which a correct Track 3 machine does not have, and it will report them as failures.
+skill, which a correct Track 3 machine does not have, and it will report them as failures. A
+mistyped flag is refused rather than guessed at, so `--trak 3` exits 64 and says so instead of
+quietly running the Track 2 profile on a Track 3 laptop.
 
 If your virtual environment is not at `~/novasmart-lab/.venv`, add `--venv DIR` rather than
 treating exit 3 as a broken install.

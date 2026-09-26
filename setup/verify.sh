@@ -14,6 +14,7 @@ KIT_DIR="${KIT_DIR:-}"          # Track 3. Resolved below: it depends on --root.
 # and finally whatever is already activated. Reporting "cannot run" against a path the
 # user never chose is the single most common false failure this script used to produce.
 VENV="${LAB_VENV:-}"
+VENV_EXPLICIT=0
 
 JSON=0; HINTS=0; READINESS=0; TRACK="${BWG_TRACK:-2}"
 while [ $# -gt 0 ]; do
@@ -24,12 +25,19 @@ while [ $# -gt 0 ]; do
     --track) TRACK="${2:?--track needs 2 or 3}"; shift ;;
     --root) LAB_ROOT="${2:?--root needs a directory}"; shift ;;
     --lab-home) LAB_HOME="${2:?--lab-home needs a directory}"; shift ;;
-    --venv) VENV="${2:?--venv needs a directory}"; shift ;;
+    --venv) VENV="${2:?--venv needs a directory}"; VENV_EXPLICIT=1; shift ;;
     --kit-dir) KIT_DIR="${2:?--kit-dir needs a directory}"; shift ;;
     -h|--help) sed -n '2,5p' "$0"
                echo "Usage: verify.sh [--json] [--fix-hints] [--readiness] [--track {2,3}]"
                echo "                 [--root DIR] [--lab-home DIR] [--venv DIR] [--kit-dir DIR]"
                exit 0 ;;
+    # Without this arm anything unrecognised fell through to the shift and vanished.
+    # "verify.sh --trak 3", or "verify.sh 3" from someone copying the installer's own
+    # prompt, then ran the Track 2 profile on a Track 3 laptop and reported missing
+    # session folders. Every remedy it printed made that machine worse.
+    # This has to sit after -h|--help, not before it: a *) placed first shadows help,
+    # and shellcheck flags the unreachable arm as SC2221/SC2222.
+    *) echo "unknown option: $1 (see --help)" >&2; exit 64 ;;
   esac
   shift
 done
@@ -39,7 +47,10 @@ SESSION="$LAB_ROOT/Desktop/Session1"
 [ -n "$KIT_DIR" ] || KIT_DIR="$LAB_ROOT/Desktop/build-with-gemini"
 
 [ -n "$VENV" ] || VENV="$LAB_HOME/.venv"
-[ -x "$VENV/bin/python" ] || [ -z "${VIRTUAL_ENV:-}" ] || VENV="$VIRTUAL_ENV"
+# Falling back to an activated venv is a convenience, not an override. If the operator
+# named one with --venv, reporting on a different one is a false pass against the very
+# path they asked about.
+[ "$VENV_EXPLICIT" = 1 ] || [ -x "$VENV/bin/python" ] || [ -z "${VIRTUAL_ENV:-}" ] || VENV="$VIRTUAL_ENV"
 PY="$VENV/bin/python"
 [ -x "$PY" ] || PY="$(command -v python3 || true)"
 
@@ -84,7 +95,11 @@ chk no-vendor-sdk "0"      "$("$PY" -c "import importlib.metadata as m;print(sum
 # real. The fix is a second profile, not a weaker assertion: Track 2 keeps every check
 # it had, exactly as it had it.
 if [ "$TRACK" = 2 ]; then
-  chk packages     "120"    "$("$PY" -c "import importlib.metadata as m;print(sum(1 for d in m.distributions() if (d.metadata['Name'] or '') not in ('pip','setuptools','wheel')))" 2>/dev/null)" exact "120" "install.sh --only python"
+  # The hint needs --force. This row goes DRIFT the moment anyone pip-installs one extra
+  # thing into the lab venv, and plain --only python runs `uv pip install --no-deps -r
+  # lock`, which never uninstalls anything. Only rebuilding the venv clears it. --force
+  # is safe here: it rebuilds $LAB_HOME/.venv, which holds no work of the attendee's.
+  chk packages     "120"    "$("$PY" -c "import importlib.metadata as m;print(sum(1 for d in m.distributions() if (d.metadata['Name'] or '') not in ('pip','setuptools','wheel')))" 2>/dev/null)" exact "120" "an extra package is installed - rebuild with install.sh --only python --force"
   chk sessions     "3"      "$(ls -d "$LAB_ROOT"/Desktop/Session[123]/.agents/skills 2>/dev/null | wc -l | tr -d ' ')" exact "3"  "install.sh --only sessions"
 
   # The lab skills ship separately from this repository. If none are installed, these two
@@ -98,15 +113,27 @@ if [ "$TRACK" = 2 ]; then
   fi
 else
   # Track 3 profile. The starter kit is a community repository that this repo does not
-  # control, so these check the shape the lab actually depends on and not an exact file
-  # list that upstream is free to change. There is deliberately no package-count check:
-  # Track 3 participants add their own dependencies, so an exact count would fail on a
-  # correct machine. There is deliberately no SKIP branch either: unlike the Track 2
-  # skills, install.sh --track 3 does fetch the kit, so a missing kit is a real failure.
-  chk kit          "ok"     "$([ -d "$KIT_DIR/.git" ] && echo ok)" exact "ok" "install.sh --track 3 --only starterkit"
-  chk kit-skills   ""       "$(kitskills)"                         any   "1 or more" "install.sh --track 3 --only starterkit --force"
-  chk kit-mcp      "ok"     "$([ -f "$KIT_DIR/.agents/mcp_config.json" ] && echo ok)" exact "ok" "install.sh --track 3 --only starterkit --force"
-  chk kit-publish  "ok"     "$([ -f "$KIT_DIR/.agents/skills/publish-to-github/publish.sh" ] && echo ok)" exact "ok" "install.sh --track 3 --only starterkit --force"
+  # control. There is deliberately no package-count check: Track 3 participants add
+  # their own dependencies, so an exact count would fail on a correct machine. There is
+  # deliberately no SKIP branch either: unlike the Track 2 skills, install.sh --track 3
+  # does fetch the kit, so a missing kit is a real failure.
+  #
+  # Be honest about the coupling. `kit` and `kit-skills` check the shape the lab depends
+  # on. `kit-mcp` and `kit-publish` assert two exact upstream paths, so they are a
+  # deliberate pin on someone else's file layout and they will break if upstream
+  # reorganises. install.sh pins the kit to KIT_REF for exactly this reason: these two
+  # rows and that pin have to be bumped together, after a rehearsal.
+  #
+  # `kit` asks git rather than looking for a .git directory, and matches install.sh's
+  # kit_state. An interrupted clone leaves .git with no checkout, and calling that OK is
+  # a false pass on the one machine that cannot run the lab at all.
+  chk kit          "ok"     "$([ -d "$KIT_DIR/.git" ] && git -C "$KIT_DIR" rev-parse --verify HEAD >/dev/null 2>&1 && echo ok)" exact "ok" "install.sh --track 3 --only starterkit"
+  # Never recommend --force here. These rows fire when upstream changed shape, which
+  # re-cloning the same upstream cannot fix, and --force moves the attendee's project
+  # folder aside to do it. Point at a fresh folder or at a human instead.
+  chk kit-skills   ""       "$(kitskills)"                         any   "1 or more" "fetch into a NEW folder: install.sh --track 3 --only starterkit --kit-dir DIR"
+  chk kit-mcp      "ok"     "$([ -f "$KIT_DIR/.agents/mcp_config.json" ] && echo ok)" exact "ok" "upstream kit layout changed - see TROUBLESHOOTING.md. Do not --force over your work"
+  chk kit-publish  "ok"     "$([ -f "$KIT_DIR/.agents/skills/publish-to-github/publish.sh" ] && echo ok)" exact "ok" "upstream kit layout changed - see TROUBLESHOOTING.md. Do not --force over your work"
   # gh is not optional for Track 3: publish-to-github is the last step of the lab.
   chk gh           ""       "$(gh --version 2>/dev/null | awk 'NR==1{print $3}')" any "any" "install.sh --track 3 --only tools"
 fi

@@ -57,10 +57,21 @@ which neither this repo nor Google maintains, and that it is not an official Goo
 their go-ahead for that specifically. If they would rather use a fork or a mirror, pass
 `--kit-url URL`.
 
-Never delete an existing starter-kit clone, and never suggest `--force` as a way to refresh one
-without saying what it does: after the lab starts, that directory holds the user's own project.
-`--force` moves the old directory aside under a timestamped name rather than removing it, but it
-still leaves the user with two copies to reconcile.
+The kit is pinned to one commit, held in `KIT_REF` at the top of `setup/install.sh`. Tell the user
+which commit they are getting if they ask, read it from that variable rather than from memory, and
+use `--kit-ref` if they want a different commit, tag or branch. `--kit-ref ""` follows the default
+branch, which means taking whatever that community repository holds that day; only do it if the
+user asks for it, and say what it means.
+
+Never delete an existing starter-kit clone, and never suggest `--force` as a way to refresh one.
+After the lab starts, that directory holds the user's own project. `--force` moves it aside under a
+timestamped name rather than removing it, but it still leaves them with two copies to reconcile,
+and when the reason for the failure is an upstream layout change, re-fetching the same upstream
+fixes nothing at all. Fetch into a new folder with `--kit-dir DIR` instead, and leave theirs alone.
+
+If the installer reports that the folder has a `.git` but no checkout, an earlier clone was
+interrupted. That is repaired by re-running `install.sh --track 3 --only starterkit`, which moves
+the unusable directory aside and fetches again. Do not reach for `--force` for this.
 
 Ask before adding `--with-extras`; the optional extras are only for demo-recording exercises and
 cost another 300-500 MB.
@@ -102,15 +113,18 @@ each repair, and keep going until it returns 0 or you are blocked on a human.
 |---|---|---|
 | `python` | Wrong interpreter, or venv built on an older Python | `uv python install 3.14`, then `install.sh --only python --force` |
 | `packages` not 120 | Resolution diverged or a build failed | Re-run `install.sh --only python`. On an Intel Mac see below |
+| `packages` is 121 or more | Someone installed an extra package into the lab venv | `install.sh --only python --force`. Plain `--only python` cannot fix this: it never uninstalls anything, so only rebuilding the venv clears it. The venv holds no work, so this is safe |
 | `google-adk`, `litellm`, `agents-cli` drift | Someone upgraded a package | `install.sh --only python --force` |
 | `config-paths` above 0 | The skills still carry the VM's `/config` paths | `install.sh --only skills --skills-src DIR` |
 | `sessions` below 3 | A session folder was deleted or never created | `install.sh --only sessions` |
 | `lab-skills` SKIP | The session folders are empty. The skills ARE bundled in this repo, so this means the sessions step did not run | `install.sh --only sessions` |
 | `lab-skill` MISSING | A skills source was given but the copy did not land, or is nested too deep | `install.sh --only sessions --skills-src DIR`, then confirm each skill has `SKILL.md` at its own top level |
 | `node`, `gcloud` MISSING | Tool step did not complete | `install.sh --only tools` |
-| `kit` MISSING (Track 3) | The starter kit was never cloned | `install.sh --track 3 --only starterkit` |
-| `kit-skills`, `kit-mcp`, `kit-publish` MISSING (Track 3) | The directory exists but is not the starter kit, or upstream changed its layout | Check `~/Desktop/build-with-gemini` is the right clone. Report a layout change rather than patching around it |
-| `gh` MISSING (Track 3) | Tool step ran as Track 2, or gh was removed | `install.sh --track 3 --only tools` |
+| `kit` MISSING (Track 3) | The starter kit was never fetched, or an earlier clone was interrupted and left a `.git` with no checkout | `install.sh --track 3 --only starterkit`. It moves an unusable directory aside and fetches again |
+| `kit-skills`, `kit-mcp`, `kit-publish` MISSING (Track 3) | The directory exists but is not the starter kit, or upstream changed its layout | Check `~/Desktop/build-with-gemini` is the right clone. Report a layout change rather than patching around it. Never suggest `--force` here: it moves the user's project folder aside to re-fetch the same unchanged upstream, so it destroys context and fixes nothing. Fetch into a new folder with `--kit-dir DIR` instead |
+| `gh` MISSING (Track 3) | Tool step ran as Track 2, or gh was removed | `install.sh --track 3 --only tools`, which installs it with brew on macOS and apt on Linux and WSL2 |
+| Installer cannot fetch the kit (Track 3) | That community upstream was renamed, deleted or made private, or the network blocks it | It fails fast and says so rather than hanging on a credential prompt. Nothing is half-applied. Re-run, or pass `--kit-url` pointing at a fork or an offline mirror |
+| `verify.sh` exits 64, `unknown option` | A mistyped or invented flag | Read `verify.sh --help`. It refuses unknown flags on purpose: it used to ignore them and silently run the Track 2 profile on a Track 3 machine |
 | `sessions` or `lab-skill` fails on a Track 3 machine | You ran the wrong profile | Re-run with `--track 3`. This is not a real failure |
 | user asks about `agy` | Not installed by design; the labs run in the IDE | Say so; do not install it |
 | exit 3 | No virtual environment | `install.sh --only python` |
