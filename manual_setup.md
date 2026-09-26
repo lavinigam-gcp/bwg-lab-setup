@@ -10,6 +10,20 @@ The lab-provided VM remains the supported option.
 Every command below is what `setup/install.sh` runs, in the same order. Doing this by hand and
 running the installer should produce the same environment, and `setup/verify.sh` checks either way.
 
+**Decide your track before you start.** Steps 1, 2, 5, 6 and 7 are shared. After that the tracks
+part company, and each step below says who it is for:
+
+| Step | Track 2 | Track 3 |
+|---|---|---|
+| 1 — System tools | yes | yes, plus the GitHub CLI |
+| 2 — Python environment | yes | yes |
+| 3 — Make the lab skills portable | yes | **skip** |
+| 4 — Create the session folders | yes | **skip** |
+| 4b — Clone the Track 3 starter kit | **skip** | yes |
+| 5 — Register the skills | yes | yes |
+| 6 — Google Cloud | yes | yes |
+| 7 — Check it worked | yes | yes, with `--track 3` |
+
 **Time:** 45–90 minutes, mostly downloads (~850 MB).
 
 ---
@@ -35,14 +49,36 @@ macOS 13+ / glibc 2.28+ / Windows 10 build 19044+ with WSL2 · x86_64 or arm64 �
 bash setup/preflight.sh        # read-only, changes nothing
 ```
 
-Throughout, `~/novasmart-lab` is the toolchain and `~/Desktop/Session1|2|3` are the lab workspaces.
+Throughout, `~/novasmart-lab` is the toolchain. The lab workspace is `~/Desktop/Session1|2|3` on
+Track 2, and `~/Desktop/build-with-gemini` on Track 3.
 
 ---
 
 ## Step 1 — System tools
 
+*Both tracks.*
+
 Installs `git`, the Google Cloud CLI, Node.js 24, and `uv`. The `agy` command line tool is not
 installed: the labs run in the Antigravity IDE and nothing in them calls it.
+
+**Track 3 also needs the GitHub CLI (`gh`)**, because the starter kit's `publish-to-github` skill
+uses it at the end of the lab. Install it alongside the rest:
+
+```bash
+brew install gh                                     # macOS
+
+# Linux and WSL2 — gh is not in the distribution archives at a usable version
+sudo install -m 0755 -d /usr/share/keyrings
+curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+  | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg status=none
+sudo chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+  | sudo tee /etc/apt/sources.list.d/github-cli.list >/dev/null
+sudo apt-get update && sudo apt-get install -y gh
+```
+
+The kit will download `gh` into `~/.local/bin` by itself if it is missing, but it does that at the
+very end of the lab, when you are least able to wait for it. Install it now.
 
 ### macOS
 
@@ -124,6 +160,8 @@ Three details that matter:
 
 ## Step 3 — Make the lab skills portable
 
+*Track 2 only. On Track 3, skip to Step 4b.*
+
 The bundled skills in `skills/` are already published portable, so normally there is nothing to do.
 Confirm:
 
@@ -151,6 +189,8 @@ echo 'export NOVASMART_SCORECARD_HOME="$HOME"' >> ~/.zshrc   # ~/.bashrc on Linu
 
 ## Step 4 — Create the session folders
 
+*Track 2 only. On Track 3, skip to Step 4b.*
+
 Antigravity works on a folder. Each session folder is a self-contained workspace with its own copy
 of the skills, matching the lab VM's layout.
 
@@ -177,10 +217,42 @@ done
 
 ---
 
-## Step 5 — Register the skills
+## Step 4b — Clone the Track 3 starter kit
+
+*Track 3 only. On Track 2, skip to Step 5.*
+
+Track 3's lab content is not in this repository. It lives in a **separate community repository**,
+<https://github.com/cszhu/build-with-gemini>. That repository is not maintained by this one, and it
+is not an official Google product. Read it before you run anything it ships.
 
 ```bash
-cd ~/Desktop/Session1
+mkdir -p ~/Desktop
+git clone --depth 1 https://github.com/cszhu/build-with-gemini ~/Desktop/build-with-gemini
+```
+
+Confirm what arrived:
+
+```bash
+ls ~/Desktop/build-with-gemini/.agents/skills     # the workshop skills
+ls ~/Desktop/build-with-gemini/.agents/mcp_config.json
+```
+
+**There is nothing to run to register these skills.** Antigravity reads the `.agents/` folder of
+whatever workspace you open, so opening `~/Desktop/build-with-gemini` is what loads them. This is
+not the same thing as Step 5, which installs the separate `google-agents-cli-*` lifecycle skills
+globally; you need both, and only Step 5 is a command.
+
+If you clone it again later, clone to a new path or move the old directory aside. Once the lab
+starts, this directory holds your own project.
+
+---
+
+## Step 5 — Register the skills
+
+*Both tracks.* On Track 3, run it from `~/Desktop/build-with-gemini` instead of `~/Desktop/Session1`.
+
+```bash
+cd ~/Desktop/Session1        # Track 3: cd ~/Desktop/build-with-gemini
 source ~/novasmart-lab/.venv/bin/activate
 agents-cli setup
 agents-cli update
@@ -192,12 +264,22 @@ general-purpose skills from a public repository — harmless now, but an unwante
 middle of an exercise.
 
 `agents-cli info`'s **skills count refers to the CLI's own toolkit**, not the lab's. Confirm the lab
-skills with `ls ~/Desktop/Session1/.agents/skills`. And `setup` exiting 0 is not proof it worked —
-read the `info` output.
+skills with `ls ~/Desktop/Session1/.agents/skills` on Track 2, or
+`ls ~/Desktop/build-with-gemini/.agents/skills` on Track 3. And `setup` exiting 0 is not proof it
+worked — read the `info` output.
+
+This step registers the `google-agents-cli-*` lifecycle skills, the ones that scaffold, deploy and
+evaluate an agent. It does **not** register the skills that ship inside a repository's own
+`.agents/` folder; Antigravity picks those up itself when you open that folder. Both tracks need
+this step, and on Track 3 the kit's own troubleshooting notes point back at `agents-cli setup` for
+exactly this reason. If Antigravity has been running throughout, restart it afterwards so it
+notices the newly installed lifecycle skills.
 
 ---
 
 ## Step 6 — Google Cloud
+
+*Both tracks.*
 
 ```bash
 gcloud auth login
@@ -224,18 +306,40 @@ closes.
 
 ## Step 7 — Check it worked
 
+*Both tracks, with the track you set up.*
+
 ```bash
-bash setup/verify.sh --readiness
+bash setup/verify.sh --readiness              # Track 2
+bash setup/verify.sh --readiness --track 3    # Track 3
 ```
 
-Expect **12 of 12 checks OK** and a readiness summary. Two lines are worth reading closely:
+Expect **11 of 11 checks OK** on Track 2, or **12 of 12** on Track 3, and a readiness summary.
+Pass the right `--track`: the Track 2 profile checks for session folders and the governance-lab
+skill, which a correct Track 3 machine does not have, and it will report them as failures.
+
+If your virtual environment is not at `~/novasmart-lab/.venv`, add `--venv DIR` rather than
+treating exit 3 as a broken install.
+
+Lines worth reading closely on **Track 2**:
 
 - **`packages 120`** — anything else means the Python install diverged, most likely a missing
   `--no-deps`.
 - **`no-vendor-sdk 0`** — anything above zero means the resolver re-added LiteLLM or an OpenAI
   client.
 
-Then open `~/Desktop/Session1` in Antigravity and begin.
+There is no `packages` check on Track 3, on purpose: you add your own dependencies as you build, so
+an exact count would fail on a perfectly good machine. `no-vendor-sdk` still applies.
+
+On **Track 3**, read these instead:
+
+- **`kit`, `kit-skills`, `kit-mcp`, `kit-publish`** — the starter kit is cloned and has the shape
+  the lab expects. If the kit checks fail but the directory exists, you may have cloned something
+  else, or upstream may have changed its layout.
+- **`gh`** — the GitHub CLI is on `PATH`. You still have to run `gh auth login` yourself, which is
+  interactive and needs your GitHub account.
+
+Then open `~/Desktop/Session1` (Track 2) or `~/Desktop/build-with-gemini` (Track 3) in Antigravity
+and begin.
 
 ---
 

@@ -18,14 +18,25 @@ it did not report.
 2. Detect the platform: `uname -s` and `uname -m`.
    - Native Windows is unsupported: `uvloop` publishes no Windows wheels. Direct the user to WSL2.
    - Intel Mac (`Darwin` + `x86_64`) needs Rust for `cryptography`; the script offers to install it.
-3. Run `bash setup/verify.sh --json` first. If it already returns exit 0, say so and stop —
-   do not reinstall a working environment.
-4. **Run `bash setup/preflight.sh` and show the user the report card.** This is mandatory and
-   changes nothing. Exit 0 GO, 1 GO WITH CAVEATS, 2 NO-GO.
+3. **Establish which track the user is doing, and do it before anything else.** Every command
+   below takes `--track`, and the two tracks install different things.
+   - Track 2 is the NovaSmart governance lab. It uses the skills bundled in this repo and works
+     out of `~/Desktop/Session1|2|3`.
+   - Track 3 is the agent-first app. It clones the Track 3 starter kit from a separate community
+     repository into `~/Desktop/build-with-gemini`, and also installs the GitHub CLI.
+   - If the user has not said, **ask**. Do not guess from the folder they have open. If you pass
+     no `--track` to a script, it silently uses Track 2, which is the wrong answer half the time.
+   - Once you know, use `--track N` on `preflight.sh`, `install.sh` and `verify.sh` every time,
+     including Track 2. Being explicit is what makes the transcript readable afterwards.
+4. Run `bash setup/verify.sh --json --track N` first. If it already returns exit 0, say so and
+   stop — do not reinstall a working environment.
+5. **Run `bash setup/preflight.sh --track N` and show the user the report card.** This is mandatory
+   and changes nothing. Its checks are identical for either track; `--track` only records which
+   track the card was collected for. Exit 0 GO, 1 GO WITH CAVEATS, 2 NO-GO.
    - On **NO-GO**, stop. Explain which checks blocked it and recommend the lab VM. Do not install
      anything, and do not reach for `--skip-preflight` to get past it.
    - On **GO WITH CAVEATS**, summarise each warning in plain language and ask whether to continue.
-5. Show what `install.sh` will change, say roughly how long it takes (45-90 minutes, mostly
+6. Show what `install.sh` will change, say roughly how long it takes (45-90 minutes, mostly
    downloads), and **get an explicit go-ahead before changing anything**. `install.sh` asks too,
    so never pass `--yes` unless the user has already said yes in this conversation.
 
@@ -34,8 +45,22 @@ it did not report.
 Run the steps in order, streaming output. Never run the whole thing silently.
 
 ```
-bash setup/install.sh --yes
+bash setup/install.sh --yes --track 2      # or --track 3
 ```
+
+`--yes` suppresses the track question along with every other prompt, so `--track` is not optional
+here. Without it the script falls back to Track 2 without asking.
+
+**Track 3 only.** Before running it, tell the user in plain words that this step clones
+<https://github.com/cszhu/build-with-gemini> onto their machine, that it is a community repository
+which neither this repo nor Google maintains, and that it is not an official Google product. Get
+their go-ahead for that specifically. If they would rather use a fork or a mirror, pass
+`--kit-url URL`.
+
+Never delete an existing starter-kit clone, and never suggest `--force` as a way to refresh one
+without saying what it does: after the lab starts, that directory holds the user's own project.
+`--force` moves the old directory aside under a timestamped name rather than removing it, but it
+still leaves the user with two copies to reconcile.
 
 Ask before adding `--with-extras`; the optional extras are only for demo-recording exercises and
 cost another 300-500 MB.
@@ -45,15 +70,28 @@ then retry that one step. Do not restart from the beginning.
 
 ## 3. Verify
 
-Finish with `bash setup/verify.sh --readiness`, which adds a readiness summary on top of the parity
-table: software, lab skills, cloud sign-in, and what the human still has to do.
-
+Finish with `bash setup/verify.sh --readiness --track N`, which adds a readiness summary on top of
+the parity table: software, lab content, cloud sign-in, and what the human still has to do.
 
 ```
-bash setup/verify.sh --json
+bash setup/verify.sh --json --track N
 ```
 
 Exit codes: `0` all pass, `1` drift, `2` something missing, `3` no virtual environment.
+
+The first seven checks are the shared toolchain and run for both tracks. After that the profiles
+diverge, and the `track` field in the JSON tells you which one you are reading:
+
+| Track 2 adds | Track 3 adds |
+|---|---|
+| `packages`, `sessions`, `lab-skill`, `config-paths` | `kit`, `kit-skills`, `kit-mcp`, `kit-publish`, `gh` |
+
+Do not run the Track 2 profile against a Track 3 machine to "get more coverage". It will report
+missing session folders and a missing governance-lab skill, neither of which Track 3 has any use
+for, and you will send the user chasing a failure that is not real.
+
+If the virtual environment is somewhere other than `~/novasmart-lab/.venv`, pass `--venv DIR`
+rather than reporting exit 3 as a broken install.
 
 For each failing check, read its `fix` field and apply the repair below. Re-run `verify.sh` after
 each repair, and keep going until it returns 0 or you are blocked on a human.
@@ -70,6 +108,10 @@ each repair, and keep going until it returns 0 or you are blocked on a human.
 | `lab-skills` SKIP | The session folders are empty. The skills ARE bundled in this repo, so this means the sessions step did not run | `install.sh --only sessions` |
 | `lab-skill` MISSING | A skills source was given but the copy did not land, or is nested too deep | `install.sh --only sessions --skills-src DIR`, then confirm each skill has `SKILL.md` at its own top level |
 | `node`, `gcloud` MISSING | Tool step did not complete | `install.sh --only tools` |
+| `kit` MISSING (Track 3) | The starter kit was never cloned | `install.sh --track 3 --only starterkit` |
+| `kit-skills`, `kit-mcp`, `kit-publish` MISSING (Track 3) | The directory exists but is not the starter kit, or upstream changed its layout | Check `~/Desktop/build-with-gemini` is the right clone. Report a layout change rather than patching around it |
+| `gh` MISSING (Track 3) | Tool step ran as Track 2, or gh was removed | `install.sh --track 3 --only tools` |
+| `sessions` or `lab-skill` fails on a Track 3 machine | You ran the wrong profile | Re-run with `--track 3`. This is not a real failure |
 | user asks about `agy` | Not installed by design; the labs run in the IDE | Say so; do not install it |
 | exit 3 | No virtual environment | `install.sh --only python` |
 
@@ -106,12 +148,18 @@ These cannot be automated. List whichever still apply, and be specific:
 - Ask the lab administrator for the IAM roles this account needs, and for confirmation that the
   Google Cloud estate has been provisioned. Without it, every exercise fails on its first real call
   even though the laptop is correct.
-- Reopen Antigravity on `~/Desktop/Session1` and continue there.
+- Reopen Antigravity on the folder for the track: `~/Desktop/Session1` for Track 2, or
+  `~/Desktop/build-with-gemini` for Track 3. Opening the folder is also what loads its skills, so
+  name the exact folder rather than saying "open the project".
+- **Track 3 only:** the kit's `publish-to-github` skill needs a GitHub account and an interactive
+  `gh auth login`. `gh` is installed, but signing in is the user's to do.
 
 ## 6. Scope
 
 You may write to: `~/novasmart-lab/`, `~/Desktop/Session1`, `Session2`, `Session3`, and the user's
-shell profile. You may run `setup/install.sh` and `setup/verify.sh`.
+shell profile. On Track 3, also `~/Desktop/build-with-gemini`, and there only to create the clone,
+never to delete or rewrite what is already in it. You may run `setup/install.sh` and
+`setup/verify.sh`.
 
 Anything else — installing unrelated software, editing files elsewhere, changing gcloud
 configuration beyond the documented commands, or granting IAM roles — **stop and report instead**.

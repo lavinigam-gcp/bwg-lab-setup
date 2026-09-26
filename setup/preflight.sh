@@ -1,15 +1,23 @@
 #!/usr/bin/env bash
 # Can this laptop run the lab? Run this FIRST, before install.sh.
 # Produces a pre-setup report card and a GO / GO WITH CAVEATS / NO-GO verdict.
+# Every check is track-neutral: it tests the machine, never the lab content.
 # Exit: 0 GO · 1 GO WITH CAVEATS · 2 NO-GO · 3 could not assess
 # Read-only: installs nothing, changes nothing.
 set -uo pipefail
 
-JSON=0
-for a in ${@+"$@"}; do case "$a" in
+# --track changes nothing that is measured. It is recorded on the report card and in
+# the JSON so a saved verdict says which track it was collected for, which is what
+# makes it traceable when someone pastes one into a support thread. Deliberately not
+# a check row: adding one would move the OK/WARN/FAIL counts and the verdict with them.
+JSON=0; TRACK="${BWG_TRACK:-}"
+while [ $# -gt 0 ]; do case "$1" in
   --json) JSON=1 ;;
-  -h|--help) sed -n '2,6p' "$0"; echo "Usage: preflight.sh [--json]"; exit 0 ;;
-esac; done
+  --track) TRACK="${2:?--track needs 2 or 3}"; shift ;;
+  -h|--help) sed -n '2,6p' "$0"; echo "Usage: preflight.sh [--json] [--track {2,3}]"; exit 0 ;;
+esac; shift; done
+case "${TRACK:-}" in ""|2|3) ;; *) echo "unknown track: $TRACK (use 2 or 3)" >&2; exit 64 ;; esac
+TRACK_LABEL="${TRACK:-not given}"
 
 ROWS=(); FAIL=0; WARN=0; OK=0
 add() { # name  status(OK|WARN|FAIL)  found  requirement  advice
@@ -173,8 +181,8 @@ VERDICT="GO"; CODE=0
 [ "$FAIL" -gt 0 ] && { VERDICT="NO-GO";           CODE=2; }
 
 if [ "$JSON" = 1 ]; then
-  printf '{"verdict":"%s","exit":%d,"ok":%d,"warn":%d,"fail":%d,"platform":"%s","arch":"%s","checks":[' \
-    "$VERDICT" "$CODE" "$OK" "$WARN" "$FAIL" "$PLAT" "$ARCH"
+  printf '{"verdict":"%s","exit":%d,"track":"%s","ok":%d,"warn":%d,"fail":%d,"platform":"%s","arch":"%s","checks":[' \
+    "$VERDICT" "$CODE" "$TRACK_LABEL" "$OK" "$WARN" "$FAIL" "$PLAT" "$ARCH"
   for i in "${!ROWS[@]}"; do
     IFS='|' read -r n s f r a <<< "${ROWS[$i]}"
     [ "$i" -gt 0 ] && printf ','
@@ -187,6 +195,7 @@ fi
 echo
 echo "  PRE-SETUP REPORT CARD"
 echo "  $OSNAME $OSVER · $ARCH · $(date +%Y-%m-%d)"
+echo "  track $TRACK_LABEL · every check below is the same for either track"
 printf '  '; printf '%.0s=' {1..72}; echo
 printf "  %-22s %-9s %-22s %s\n" CHECK STATUS FOUND NEEDS
 printf '  '; printf '%.0s-' {1..72}; echo

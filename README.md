@@ -3,6 +3,9 @@
 Set up a personal laptop — macOS, Linux, or Windows via WSL2 — with the software stack for the
 Build with Google **Track 2 and Track 3** labs, so you can run them without the provided cloud VM.
 
+Pick your track with `--track 2` or `--track 3`. Without the flag the installer asks, and falls back
+to Track 2 when there is no terminal to ask on. See [Which track](#which-track).
+
 ---
 
 ## ⚠️ Read this before you run anything
@@ -56,6 +59,42 @@ lose before you begin.**
 ---
 
 Everything is pinned to a reference environment. Verified 19 August 2026.
+
+## Which track
+
+Both tracks share the same toolchain: Python 3.14, the pinned package set, the Google Cloud CLI,
+Node.js 24, and the `agents-cli` lifecycle skills. What differs is the lab content.
+
+| | Track 2 | Track 3 |
+|---|---|---|
+| Lab | NovaSmart governance lab | Agent-first app on Google Cloud |
+| Command | `bash setup/install.sh --track 2` | `bash setup/install.sh --track 3` |
+| Lab content | The skills bundled in this repo's `skills/` | The Track 3 starter kit, cloned from GitHub |
+| Where you work | `~/Desktop/Session1`, `Session2`, `Session3` | `~/Desktop/build-with-gemini` |
+| Also installs | none | The GitHub CLI (`gh`), which the kit needs to publish your project |
+| Verify with | `bash setup/verify.sh --readiness` | `bash setup/verify.sh --readiness --track 3` |
+
+If you do not pass `--track`, the installer asks you. When nothing can ask you, such as a pipe, a CI
+job, or `--dry-run`, it sets up **Track 2** and says so on stderr. Track 2 is unchanged in every
+respect for anyone who does not pass the flag.
+
+### About the Track 3 starter kit
+
+Track 3 works out of a starter kit that lives in a **separate community repository**,
+<https://github.com/cszhu/build-with-gemini>. It is **not** part of this repository, it is **not**
+maintained by this repository's author, and like this repository it is **not an official Google
+product**. `install.sh --track 3` clones it as-is. It does not vendor it, patch it, or review it for
+you. Read that repository before you run anything it ships, exactly as you should read this one.
+
+You can point somewhere else with `--kit-url URL`, for example at your own fork or an offline
+mirror, and change where it lands with `--kit-dir DIR`.
+
+The clone is treated as **yours** from the moment it exists, because that is where you build your
+project. Re-running the installer leaves an existing clone alone. Even `--force` does not delete it:
+it moves the old directory aside with a timestamped name and clones a fresh one next to it.
+
+You do **not** need to run anything to register the kit's skills. Antigravity reads the `.agents/`
+folder of whatever workspace you open, so opening the cloned folder is what loads them.
 
 ## Three ways to do this
 
@@ -118,14 +157,26 @@ whether a corporate proxy is intercepting TLS, which breaks installers in confus
 
 ```bash
 bash setup/install.sh --dry-run     # optional: see every command it would run
-bash setup/install.sh
+bash setup/install.sh               # asks which track, then installs it
 ```
 
-**Step 3 — confirm you are ready.**
+Or name the track up front, which is what you want in a script or over a slow link:
 
 ```bash
-bash setup/verify.sh --readiness
+bash setup/install.sh --track 2     # NovaSmart governance lab
+bash setup/install.sh --track 3     # agent-first app, with the Track 3 starter kit
 ```
+
+**Step 3 — confirm you are ready.** Use the same track you installed:
+
+```bash
+bash setup/verify.sh --readiness              # Track 2
+bash setup/verify.sh --readiness --track 3    # Track 3
+```
+
+`verify.sh` checks the shared toolchain for both tracks, then the part that belongs to your track:
+session folders and the governance-lab skill for Track 2, the cloned starter kit and `gh` for
+Track 3. It never reports a Track 2 requirement as a failure on a Track 3 machine, or the reverse.
 
 ---
 
@@ -150,6 +201,8 @@ run on your machine, or if you simply want to understand what it does.
 - 8 GB RAM minimum, 16 GB recommended · 15 GB free disk · 4 CPU cores recommended
 - Homebrew on macOS
 - A Google Cloud project you can use
+- **Track 3 only:** a GitHub account, to publish your finished project. The GitHub CLI (`gh`)
+  itself is installed for you by `--track 3`; you do not need it beforehand.
 
 Native Windows is **not supported**: a required package (`uvloop`) publishes no Windows builds.
 Use WSL2.
@@ -195,7 +248,9 @@ but it cannot tell for certain — the check is yours to make.
 | Python | 3.14 | yes |
 | Python packages | 120, pinned in `setup/requirements-lock.txt` | yes |
 | Google Cloud CLI | current | yes |
-| The lab skills | bundled in `skills/` | yes |
+| The Track 2 lab skills | bundled in `skills/` | Track 2 |
+| The Track 3 starter kit | cloned from a community repo | Track 3 |
+| GitHub CLI (`gh`) | current | Track 3 |
 | Node.js | 24 | no — parity with the reference image |
 | ffmpeg, VS Code, Playwright's browser | current | no — `--with-extras` |
 

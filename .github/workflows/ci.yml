@@ -16,6 +16,27 @@ jobs:
       - name: preflight runs and reports
         run: bash setup/preflight.sh || [ $? -le 2 ]
 
+      - name: preflight is track-neutral
+        run: |
+          # --track must record the track and change nothing that is measured. If a
+          # check ever becomes track-dependent, these counts stop matching.
+          python3 - <<'PY'
+          import json, subprocess, sys
+          def run(args):
+              p = subprocess.run(["bash", "setup/preflight.sh", "--json"] + args,
+                                 capture_output=True, text=True)
+              return json.loads(p.stdout)
+          base = run([])
+          for t in ("2", "3"):
+              got = run(["--track", t])
+              assert got["track"] == t, got["track"]
+              for k in ("verdict", "exit", "ok", "warn", "fail"):
+                  assert got[k] == base[k], (k, got[k], base[k])
+              assert len(got["checks"]) == len(base["checks"])
+          assert base["track"] == "not given"
+          print("preflight is track-neutral:", base["verdict"], base["ok"], "ok")
+          PY
+
       - name: install dry-run completes
         run: |
           bash setup/install.sh --dry-run --yes --root /tmp/ci > /tmp/dry.out 2>&1
@@ -45,9 +66,58 @@ jobs:
 
       - name: verify has not lost its checks
         run: |
-          n=$(grep -c '^chk ' setup/verify.sh)
-          [ "$n" -ge 8 ] || { echo "verify.sh has only $n checks - did some get deleted?"; exit 1; }
+          # ' *chk ', not '^chk ': the track-specific checks live inside an if block and
+          # are indented. Counting only column-zero calls would silently ignore them.
+          n=$(grep -cE '^ *chk ' setup/verify.sh)
+          [ "$n" -ge 15 ] || { echo "verify.sh has only $n checks - did some get deleted?"; exit 1; }
           echo "verify.sh has $n checks"
+
+      - name: both track profiles are present and Track 2 kept every check it had
+        run: |
+          for c in packages sessions lab-skill config-paths; do
+            grep -qE "^ *chk $c " setup/verify.sh \
+              || { echo "Track 2 check '$c' was deleted"; exit 1; }
+          done
+          for c in kit kit-skills kit-mcp kit-publish gh; do
+            grep -qE "^ *chk $c " setup/verify.sh \
+              || { echo "Track 3 check '$c' is missing"; exit 1; }
+          done
+          echo "both profiles present"
+
+      - name: track 3 dry-run completes and fetches the starter kit
+        run: |
+          bash setup/install.sh --dry-run --yes --track 3 --root /tmp/ci3 > /tmp/dry3.out 2>&1
+          grep -q "Done. Now run" /tmp/dry3.out \
+            || { echo "track 3 dry-run did not reach the end"; cat /tmp/dry3.out; exit 1; }
+          grep -q "git clone .* /tmp/ci3/Desktop/build-with-gemini" /tmp/dry3.out \
+            || { echo "track 3 did not clone the starter kit"; cat /tmp/dry3.out; exit 1; }
+          grep -q "apt-get install -y google-cloud-cli nodejs gh" /tmp/dry3.out \
+            || { echo "track 3 did not install gh"; cat /tmp/dry3.out; exit 1; }
+          test ! -d /tmp/ci3
+
+      - name: no --track means Track 2, unchanged
+        run: |
+          # The whole point of the flag is that people who never pass it see no difference.
+          # Track 2 owns the sessions step and must not acquire anything belonging to Track 3.
+          bash setup/install.sh --dry-run --yes --root /tmp/ci2 > /tmp/dry2.out 2>/dev/null
+          grep -q "Step 5/5  Register the skills" /tmp/dry2.out \
+            || { echo "default run is no longer the 5-step Track 2 run"; cat /tmp/dry2.out; exit 1; }
+          grep -q "Desktop/Session3/.agents/skills" /tmp/dry2.out \
+            || { echo "default run stopped creating the session folders"; exit 1; }
+          for leak in "build-with-gemini" "nodejs gh" "starter kit"; do
+            grep -q "$leak" /tmp/dry2.out \
+              && { echo "Track 3 content leaked into the default run: $leak"; exit 1; }
+          done
+          test ! -d /tmp/ci2
+          echo "default run is still Track 2"
+
+      - name: a dry run never blocks waiting for a track
+        run: |
+          # No TTY here, but assert it explicitly: a hang would otherwise show up as a
+          # six-hour job rather than a failure.
+          timeout 60 bash setup/install.sh --dry-run --root /tmp/ci-tty >/dev/null 2>&1 \
+            || { echo "dry-run without --track did not finish"; exit 1; }
+          timeout 60 bash setup/preflight.sh --track 3 >/dev/null 2>&1 || [ $? -le 2 ]
 
       - name: pinned set matches what verify expects
         run: |

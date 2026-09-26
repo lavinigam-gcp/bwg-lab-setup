@@ -9,9 +9,15 @@ Every failure we have seen, across macOS, Linux and WSL2, with the cause and the
 Two commands answer most questions. Both are read-only.
 
 ```bash
-bash setup/preflight.sh          # can this machine do it at all?
-bash setup/verify.sh --fix-hints # what is wrong with the current install?
+bash setup/preflight.sh                      # can this machine do it at all?
+bash setup/verify.sh --fix-hints --track 2   # what is wrong with the current install?
 ```
+
+**Pass the track you set up.** `verify.sh` defaults to Track 2, and the Track 2 profile looks for
+things a Track 3 machine has no reason to have. Running it against Track 3 reports missing session
+folders and a missing governance-lab skill, and neither is a real problem. Use `--track 3` and the
+Track 3 profile instead. `preflight.sh` also takes `--track`, but only to record it on the report
+card: every check it runs is the same for either track.
 
 `--fix-hints` prints the exact `install.sh --only …` command for each failing check. Fix the cause,
 re-run that one step, re-verify. **Do not start over** — `install.sh` is idempotent and re-running a
@@ -261,6 +267,86 @@ Exit 0 is not proof. Read the `agents-cli info` output.
 
 ---
 
+## Track 3 and the starter kit
+
+Track 3's lab content comes from <https://github.com/cszhu/build-with-gemini>, a **separate
+community repository**. It is not maintained by this repository and it is not an official Google
+product. Everything in this section is about that clone, not about this repo.
+
+**`verify.sh` reports `sessions` and `lab-skill` failing, but I am on Track 3.**
+You ran the Track 2 profile. Track 3 has no `~/Desktop/SessionN` folders and no
+`novasmart-governance-lab` skill, so those checks are meaningless for it. Re-run with `--track 3`.
+Nothing is broken.
+
+**`verify.sh` reports `packages` drift on Track 3.**
+Same cause. There is no `packages` check in the Track 3 profile, on purpose: you install your own
+dependencies as you build, so an exact count of 120 would fail on a correct machine.
+
+**`kit` MISSING.**
+The starter kit was never cloned, or it is somewhere else. Clone it:
+
+```bash
+bash setup/install.sh --track 3 --only starterkit
+```
+
+If you keep it elsewhere, point both scripts at it with `--kit-dir DIR`.
+
+**`kit` OK but `kit-skills`, `kit-mcp` or `kit-publish` MISSING.**
+The directory exists but is not the starter kit, or upstream changed its layout. Confirm what you
+actually have:
+
+```bash
+git -C ~/Desktop/build-with-gemini remote -v
+ls ~/Desktop/build-with-gemini/.agents/skills
+```
+
+That repository can change at any time without notice to this one. If the layout genuinely moved,
+report it rather than editing the checks to pass.
+
+**The clone failed, or GitHub is blocked.**
+`preflight.sh` probes `github.com`, so check its report card first. Note that the Linux `gh`
+install uses a **different host**, `cli.github.com`, which preflight does not probe. A network that
+allows `github.com` can still block the package host. Use `brew install gh` on macOS, or download a
+release binary by hand, if the apt repository is unreachable.
+
+**I already started building, and I want to re-run the installer.**
+Re-running is safe. `install.sh --track 3` leaves an existing clone alone and says so. Do **not**
+reach for `--force` expecting a refresh: it moves your directory aside under a timestamped name and
+clones a fresh one, which leaves you with two copies to reconcile. Nothing is deleted either way.
+
+**The kit's skills do not appear in Antigravity.**
+Cloning the kit is all the registration it needs, because Antigravity reads the `.agents/` folder
+of the workspace you open. So open `~/Desktop/build-with-gemini` itself as the folder, and start a new
+session; a repository cloned mid-session is read as ordinary files. This is separate from the
+`google-agents-cli-*` lifecycle skills, which **are** installed by a command, `agents-cli setup`,
+in the register step. If `/skills` shows the kit's skills but not the lifecycle ones, re-run that
+step and restart Antigravity. If it shows the lifecycle ones but not the kit's, you have the wrong
+folder open.
+
+**`gh` is missing, or `gh` is installed but not on `PATH`.**
+`install.sh --track 3` installs it with brew or apt, which puts it on `PATH` properly. If it is
+missing, you probably ran the tool step as Track 2:
+
+```bash
+bash setup/install.sh --track 3 --only tools
+```
+
+If `gh` exists but the shell cannot find it, the kit's own publish script fetched it into
+`~/.local/bin`. Add that to `PATH`:
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+**`gh` is installed but publishing still fails.**
+Installing `gh` is not signing in to it. That part is interactive and needs your own GitHub account:
+
+```bash
+gh auth login
+```
+
+---
+
 ## Preflight verdicts
 
 | Verdict | Meaning | What to do |
@@ -285,6 +371,9 @@ These are not bugs, and no amount of reinstalling fixes them.
 | `adc MISSING` inside a container | ADC lives in `~/.config/gcloud`; a mounted credential elsewhere is not detected |
 | Antigravity version newer than the reference | Expected. Versions are checked for presence, not pinned |
 | `lab-skills SKIP` | Session folders exist but are empty. Run `install.sh --only sessions` |
+| `sessions` / `lab-skill` / `packages` failing on Track 3 | You ran the Track 2 profile. Add `--track 3` |
+| A warning that no `--track` was given | You did not pass one, so Track 2 was assumed. Harmless on Track 2, wrong on Track 3 |
+| The starter kit is newer than this repo describes | Expected. It is a separate repository on its own schedule |
 
 ---
 
@@ -293,11 +382,13 @@ These are not bugs, and no amount of reinstalling fixes them.
 Open an issue with the output of both:
 
 ```bash
-bash setup/preflight.sh
-bash setup/verify.sh --fix-hints
+bash setup/preflight.sh --track 2          # or --track 3
+bash setup/verify.sh --fix-hints --track 2 # or --track 3
 ```
 
-Include your OS and version, and whether you are on Apple Silicon, Intel, or WSL2. Those two outputs
+Include your OS and version, whether you are on Apple Silicon, Intel, or WSL2, **and which track
+you are doing**. Both outputs now print the track, so a pasted report card says which profile it
+came from. Those two outputs
 plus the platform are almost always enough to diagnose it.
 
 `~/novasmart-lab/install.log` has a timestamped record of every command the installer ran, which is
