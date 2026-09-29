@@ -186,6 +186,39 @@ IS_INTEL_MAC=0
 
 need() { command -v "$1" >/dev/null 2>&1; }
 
+# ---------- Windows / WSL2 consent ----------
+# Windows with WSL2 is LIMITED SUPPORT. The toolchain and gcloud do work here, but
+# Antigravity has been seen to refuse to open a folder that lives on a WSL path and
+# report "folder not found". Mapping the WSL share to a drive letter works around it
+# and then disappears on the next restart, so it is a workaround and not a fix. An
+# attendee is entitled to hear that before this script changes their machine, because
+# for some of them the right answer is the provided VM instead.
+#
+# A dry run NEVER asks, on the same reasoning as the track question above: it has to
+# print the same bytes whether or not a human is watching, and it must not block a CI
+# job that has no terminal. In that case the run continues and the notice goes to
+# stderr, where operator messages belong. This does nothing at all on macOS or Linux.
+wsl_gate() {
+  [ "$OS" = wsl2 ] || return 0
+  if [ "$DRY" = 0 ] && [ -t 0 ]; then
+    say "Windows with WSL2 is limited support"
+    info "Read this before you agree to continue:"
+    info "  - Windows is not supported to the level macOS and Linux are. Some of this"
+    info "    lab has been seen to break here, and setup makes more changes to your"
+    info "    machine on WSL2 than it does on the other two."
+    info "  - Antigravity may fail to open the setup folder on a WSL path. It reports"
+    info "    'folder not found' even though the folder is there."
+    info "  - Mapping the WSL share to a drive letter, for example Z:, is the known"
+    info "    workaround. It DOES NOT survive a restart, so you may have to redo it."
+    info "  - You do not have to do this. You can use the provided lab VM, or set up"
+    info "    on location at the event with a helper, instead."
+    printf '    Continue on WSL2 anyway? [y/N] '; read -r a
+    case "$a" in y|Y) ;; *) echo "  Stopped. Nothing was changed."; exit 0 ;; esac
+  else
+    warn "WSL2 detected and no terminal to ask on - continuing. Windows is limited support: Antigravity may fail to open folders on WSL paths, the drive-letter workaround does not survive a restart, and the provided lab VM or setup on location at the event remain your alternatives."
+  fi
+}
+
 # ---------- steps ----------
 step_tools() {
   heading tools "Install the tools  ($OS/$ARCH)"
@@ -530,6 +563,9 @@ gate() {
 }
 
 main() {
+  # Before anything, including the preflight gate: --only skips gate() but still does
+  # work, so the Windows notice cannot live inside gate().
+  wsl_gate
   if [ "$DRY" = 1 ]; then say "DRY RUN - nothing will be changed"
   else mkdir -p "$LAB_HOME" 2>/dev/null || true; fi
   local steps=("${TRACK_STEPS[@]}")

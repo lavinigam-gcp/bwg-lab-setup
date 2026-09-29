@@ -64,8 +64,13 @@ else
         add "operating system" FAIL "$OSNAME ${OSVER#0} (glibc $GLIBC)" "glibc 2.28+" \
           "Antigravity requires glibc 2.28 or newer and will not launch here. Upgrade the distribution, or use the lab VM."
       fi ;;
-    wsl2)  add "operating system" OK "$OSNAME $OSVER (WSL2)" "WSL2 with WSLg" \
-               "" ;;
+    # Windows is LIMITED SUPPORT, so this row is a warning and never a clean GO.
+    # WSL2 runs the toolchain, but Antigravity has been seen to refuse to open a
+    # folder that lives on a WSL path, and the only known workaround is not durable.
+    # A machine that can do the lab but may strand the attendee is a caveat, not a
+    # pass. It is not a NO-GO either: the toolchain and gcloud do work here.
+    wsl2)  add "operating system" WARN "$OSNAME $OSVER (WSL2)" "WSL2 (limited support)" \
+               "Windows with WSL2 is limited support, not a peer of macOS and Linux. Antigravity may fail to open the setup folder on a WSL path and report 'folder not found'. Mapping the WSL share to a drive letter can work around that, but the mapping DOES NOT survive a restart and has to be redone. Plan to finish setup on location at the event, or use the provided lab VM." ;;
   esac
 fi
 

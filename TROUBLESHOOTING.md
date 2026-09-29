@@ -148,6 +148,32 @@ Google publishes no arm64 `.deb`. Chrome is optional; any browser works for sign
 
 ## WSL2
 
+Windows with WSL2 is **limited support**, not a peer of macOS and Linux. The toolchain and
+`gcloud` do work here. Antigravity is the part that has been seen to fail, and the only known
+workaround for it is not durable. Preflight reports WSL2 as `GO WITH CAVEATS`, never a clean `GO`,
+and `install.sh` asks you to agree to the limitations before it changes anything.
+
+**Antigravity says "folder not found" for a folder that is there.**
+This is the known Windows failure. Antigravity is a Windows application and reaches into the Linux
+filesystem over the `\\wsl$` network share, so a WSL path such as `/home/you/Desktop/Session1` is
+not something Windows can resolve on its own. If the share is not mounted, or the distribution is
+not running, Windows concludes the folder does not exist.
+
+The known workaround is to map the WSL share to a drive letter. In File Explorer, Map network
+drive, `\\wsl$\Ubuntu` (use your own distribution name), pick a letter such as `Z:`, then open
+`Z:\home\you\Desktop\Session1` in Antigravity instead of the WSL path.
+
+**The drive mapping does not survive a restart.** This is not a solved problem. A tester mapped the
+drive, finished setup, rebooted, and found the mapping gone. Plan on redoing it after every
+restart, and do not treat the first success as the end of it.
+
+If that is not acceptable, both fallbacks are legitimate and neither is a failure on your part:
+
+- Finish your setup on location at the event, where a helper can work through it with you.
+- Use the provided lab VM, which has none of this problem.
+
+Do not spend event time fighting this. If you are on Windows and the clock is short, take the VM.
+
 **Antigravity does not open at all.**
 WSLg is missing. In PowerShell run `wsl --version`. If the command is unrecognised, you have the
 older in-box WSL — install WSL from the Microsoft Store and restart.

@@ -189,13 +189,24 @@ else
       [ -f "$SESSION/.agents/skills/novasmart-governance-lab/SKILL.md" ] && est="installed"
     fi
     [ "$code" = 0 ] && sw="ready"
+    # Whether a lab project has been issued is the only signal this script has for
+    # telling the week before the event apart from the morning of it. Before the
+    # event nobody has one, so the sign-in below cannot be done yet: the credentials
+    # do not exist. Printing it as homework is what confused every early tester.
+    PROJ="$(gcloud config get-value project 2>/dev/null)"
     [ -f "$HOME/.config/gcloud/application_default_credentials.json" ] \
-      && [ -n "$(gcloud config get-value project 2>/dev/null)" ] && auth="signed in"
+      && [ -n "$PROJ" ] && auth="signed in"
+    PRE_EVENT=0; [ -z "$PROJ" ] && PRE_EVENT=1
+    auth_row="$auth"; proj_row="ask your lab administrator"
+    if [ "$PRE_EVENT" = 1 ]; then
+      auth_row="$auth - expected before the event"
+      proj_row="issued to you at the event"
+    fi
     printf "  %-34s %s\n" "software toolchain"        "$sw"
     printf "  %-34s %s\n" "$est_label"                "$est"
-    printf "  %-34s %s\n" "google cloud sign-in"      "$auth"
+    printf "  %-34s %s\n" "google cloud sign-in"      "$auth_row"
     printf "  %-34s %s\n" "antigravity IDE"           "check by hand - open it"
-    printf "  %-34s %s\n" "cloud project provisioned" "ask your lab administrator"
+    printf "  %-34s %s\n" "cloud project provisioned" "$proj_row"
     echo
     if [ "$sw" = ready ] && [ "$est" = installed ] && [ "$auth" = "signed in" ]; then
       echo "  Your laptop is ready. Open $open_dir in Antigravity and begin."
@@ -203,11 +214,27 @@ else
       echo "  Still to do:"
       [ "$sw"   != ready ]       && echo "    - fix the failing checks above (bash setup/verify.sh --fix-hints --track $TRACK)"
       [ "$est"  != installed ]   && echo "$est_fix"
-      [ "$auth" != "signed in" ] && { echo "    - gcloud auth login && gcloud auth application-default login"
-                                      echo "      then: gcloud config set project PROJECT_ID"
-                                      echo "            gcloud auth application-default set-quota-project PROJECT_ID"; }
-      echo "    - open Antigravity and sign in with 'Use Google Cloud project instead'"
-      echo "    - confirm with your lab administrator that the cloud estate is provisioned"
+      # Two states, one block. Before the event the sign-in is not a task at all, so
+      # it is reported as expected rather than listed as something to go and fix. On
+      # the day a project exists, and the commands below are exactly what to run.
+      # Either way the attendee is told where the credentials come from.
+      if [ "$auth" != "signed in" ] && [ "$PRE_EVENT" = 1 ]; then
+        echo "    - nothing to do for Google Cloud yet. You are not signed in and no lab"
+        echo "      project is set, and before the event both of those are expected."
+        echo "      Your gcloud authentication credentials are given to you at the event."
+      elif [ "$auth" != "signed in" ]; then
+        echo "    - gcloud auth login && gcloud auth application-default login"
+        echo "      then: gcloud config set project PROJECT_ID"
+        echo "            gcloud auth application-default set-quota-project PROJECT_ID"
+        echo "      Your gcloud authentication credentials are given to you at the event."
+      fi
+      # Both of these are Google Cloud tasks, so they belong to the same two states
+      # as the block above. Before the event they are not tasks, and printing them
+      # here would contradict the line that just said there is nothing to do yet.
+      if [ "$PRE_EVENT" = 0 ]; then
+        echo "    - open Antigravity and sign in with 'Use Google Cloud project instead'"
+        echo "    - confirm with your lab administrator that the cloud estate is provisioned"
+      fi
     fi
   fi
   if [ "$HINTS" = 1 ] && [ "$code" != 0 ]; then

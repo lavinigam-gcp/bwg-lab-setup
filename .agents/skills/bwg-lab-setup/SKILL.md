@@ -16,7 +16,8 @@ it did not report.
 1. Confirm the open folder is this repository — it must contain `setup/install.sh` and
    `setup/verify.sh`. If not, stop and tell the user which folder to open.
 2. Detect the platform: `uname -s` and `uname -m`.
-   - Native Windows is unsupported: `uvloop` publishes no Windows wheels. Direct the user to WSL2.
+   - Native Windows is unsupported: `uvloop` publishes no Windows wheels. Direct the user to WSL2,
+     and read section 1b before you do anything else on that machine.
    - Intel Mac (`Darwin` + `x86_64`) needs Rust for `cryptography`; the script offers to install it.
 3. **Establish which track the user is doing, and do it before anything else.** Every command
    below takes `--track`, and the two tracks install different things.
@@ -39,6 +40,45 @@ it did not report.
 6. Show what `install.sh` will change, say roughly how long it takes (45-90 minutes, mostly
    downloads), and **get an explicit go-ahead before changing anything**. `install.sh` asks too,
    so never pass `--yes` unless the user has already said yes in this conversation.
+
+## 1b. Windows with WSL2 is limited support
+
+macOS and Linux are supported. Windows with WSL2 is **limited support**, and you must say so.
+Never tell the user Windows is fully supported, and never present the workaround below as a fix.
+
+What actually happens. The toolchain installs and `gcloud` works under WSL2. Antigravity is the
+part that breaks: asked to open a folder that lives on a WSL path, it can report **"folder not
+found"** even though the folder is there. Antigravity runs as a Windows application and reaches
+into the Linux file system over the `\\wsl$` network share, so a path such as
+`/home/user/Desktop/Session1` is not a path Windows can resolve. When the share is not mounted, or
+the distribution is not running, the folder genuinely does not exist as far as Windows is
+concerned.
+
+The known workaround, and its limit. Map the WSL share to a drive letter, for example map
+`\\wsl$\Ubuntu` to `Z:`, then point Antigravity at `Z:\home\user\Desktop\Session1` instead of the
+WSL path. This has been seen to work. **It does not survive a restart.** A tester mapped the drive,
+got through setup, rebooted, and found every mapping gone. Treat the mapping as something the user
+will have to redo, and tell them that at the time you suggest it, not afterwards.
+
+Before you apply any of this, **get the user's explicit approval.** Say all four of these:
+
+- Windows is limited support for this lab, and this is a workaround, not a fix.
+- It changes more on their machine than setup does on macOS or Linux, because it adds a persistent
+  drive mapping to their Windows profile.
+- The mapping is lost on restart and will need redoing.
+- They do not have to accept it. The provided lab VM, and finishing setup on location at the event
+  with a helper, are both still open to them.
+
+Only proceed on a clear yes. If they decline, stop and recommend the VM, and say plainly that this
+is not a failure on their part.
+
+`setup/install.sh` asks the same question itself when it detects WSL2, so on that machine expect a
+consent prompt before any work starts. In a dry run, or with no terminal attached, it does not ask:
+it prints the warning on stderr and continues. Do not read that non-interactive warning as the user
+having agreed to anything.
+
+`setup/preflight.sh` reports WSL2 as **GO WITH CAVEATS**, never a clean GO. Do not describe that
+verdict to the user as a pass.
 
 ## 2. Install
 

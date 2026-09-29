@@ -42,8 +42,9 @@ gcloud config configurations create lab
 ```
 
 **Check your machine can cope.** If you would rather not run the script at all, the thresholds are:
-macOS 13+ / glibc 2.28+ / Windows 10 build 19044+ with WSL2 · x86_64 or arm64 · 4 cores · 8 GB RAM
-(16 recommended) · 15 GB free disk. Otherwise:
+macOS 13+ / glibc 2.28+ · x86_64 or arm64 · 4 cores · 8 GB RAM (16 recommended) · 15 GB free disk.
+Windows 10 build 19044+ with WSL2 also meets the bar, on **limited support**: read
+[Windows with WSL2](#windows-with-wsl2) below before you begin. Otherwise:
 
 ```bash
 bash setup/preflight.sh        # read-only, changes nothing
@@ -51,6 +52,29 @@ bash setup/preflight.sh        # read-only, changes nothing
 
 Throughout, `~/novasmart-lab` is the toolchain. The lab workspace is `~/Desktop/Session1|2|3` on
 Track 2, and `~/Desktop/build-with-gemini` on Track 3.
+
+---
+
+## Windows with WSL2
+
+Read this before Step 1 if you are on Windows. macOS and Linux are supported. Windows with WSL2 is
+**limited support**: it is not unsupported, but it is not a peer of the other two either.
+
+Every command below runs the same under WSL2 as it does on Linux, and a tester confirmed the
+toolchain and `gcloud` work there. Antigravity is the part that has been seen to fail.
+
+- **Known failure.** Antigravity can report **"folder not found"** for a folder on a WSL path that
+  is plainly there. Antigravity is a Windows application and reaches the Linux filesystem over the
+  `\\wsl$` network share, so `/home/you/Desktop/Session1` is not a path Windows can resolve.
+- **Known workaround, with a real limit.** Map the WSL share to a drive letter, for example
+  `\\wsl$\Ubuntu` to `Z:`, and open `Z:\home\you\Desktop\Session1` instead. This has worked.
+  **The mapping does not survive a restart**, so expect to redo it. It is a workaround, not a fix.
+- **Fallbacks, both fine.** Finish your setup on location at the event, or use the provided lab VM,
+  which does not have this problem.
+
+`setup/preflight.sh` reports WSL2 as `GO WITH CAVEATS` and never a clean `GO`, and `setup/install.sh`
+asks you to agree to these limitations before it changes anything. Doing the steps by hand does not
+remove the limitation. See [TROUBLESHOOTING.md](TROUBLESHOOTING.md#wsl2).
 
 ---
 
@@ -395,7 +419,8 @@ system, is in **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)**. The ones that catch 
 |---|---|
 | `cryptography` fails to build on an Intel Mac | No Intel wheel for the pinned version. Install Rust and Xcode command line tools |
 | The install hangs with no output on Linux | `DEBIAN_FRONTEND` not passed through `sudo`; `tzdata` is waiting on a prompt |
-| `uvloop` will not install on Windows | It has no Windows build. Use WSL2 |
+| `uvloop` will not install on Windows | It has no Windows build. Use WSL2, on limited support |
+| Antigravity says "folder not found" on a WSL path | Known Windows failure. Map the WSL share to a drive letter, and expect to redo it after every restart. See [Windows with WSL2](#windows-with-wsl2) |
 | `agents-cli: command not found` | The virtual environment is not activated |
 | An exercise writes a file and it is nowhere | Skills still contain `/config` paths — Step 4 |
 | Everything installs but exercises find nothing | Expected until the Google Cloud project is provisioned |

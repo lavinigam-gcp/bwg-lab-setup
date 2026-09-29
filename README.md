@@ -1,7 +1,12 @@
 # bwg-lab-setup
 
-Set up a personal laptop — macOS, Linux, or Windows via WSL2 — with the software stack for the
-Build with Google **Track 2 and Track 3** labs, so you can run them without the provided cloud VM.
+Set up a personal laptop with the software stack for the Build with Google **Track 2 and Track 3**
+labs, so you can run them without the provided cloud VM. macOS and Linux are supported. Windows
+via WSL2 is on limited support.
+
+Windows is **limited support**. It is not unsupported, but it is not a peer of macOS and Linux
+either: Antigravity has been seen to fail to open folders on WSL paths, and the known workaround
+does not survive a restart. Read [Windows with WSL2](#windows-with-wsl2) before you start.
 
 Pick your track with `--track 2` or `--track 3`. Without the flag the installer asks, and falls back
 to Track 2 when there is no terminal to ask on. See [Which track](#which-track).
@@ -188,8 +193,8 @@ run on your machine, or if you simply want to understand what it does.
 - **Sign in to Antigravity with the Qwiklabs account issued for this lab.** Not your personal Google
   account, and not your work or corporate account. See
   [Which account to use](#which-account-to-use).
-- macOS 13+, or a Linux with glibc 2.28+ (Ubuntu 20.04+ / Debian 10+), or Windows 10 build 19044+
-  with WSL2 and WSLg
+- macOS 13+, or a Linux with glibc 2.28+ (Ubuntu 20.04+ / Debian 10+). Windows 10 build 19044+
+  with WSL2 and WSLg also works, on limited support: see [Windows with WSL2](#windows-with-wsl2)
 - 8 GB RAM minimum, 16 GB recommended · 15 GB free disk · 4 CPU cores recommended
 - Homebrew on macOS
 - A Google Cloud project you can use
@@ -197,7 +202,26 @@ run on your machine, or if you simply want to understand what it does.
   itself is installed for you by `--track 3`; you do not need it beforehand.
 
 Native Windows is **not supported**: a required package (`uvloop`) publishes no Windows builds.
-Use WSL2.
+Use WSL2, and read the section below first.
+
+## Windows with WSL2
+
+Windows runs this lab on **limited support**. The toolchain installs and `gcloud` works. The part
+that has been seen to fail is Antigravity.
+
+- **Known failure.** Antigravity can report **"folder not found"** for a folder on a WSL path that
+  is plainly there. Antigravity is a Windows application and reaches the Linux filesystem over the
+  `\\wsl$` network share, so `/home/you/Desktop/Session1` is not a path Windows can resolve.
+- **Known workaround, with a real limit.** Mapping the WSL share to a drive letter, for example
+  `\\wsl$\Ubuntu` to `Z:`, and opening `Z:\home\you\Desktop\Session1` instead, has worked. **The
+  mapping does not survive a restart.** One tester rebooted and found every mapping gone. Expect to
+  redo it. This is a workaround, not a fix.
+- **Fallbacks, both fine.** Finish your setup on location at the event with a helper, or use the
+  provided lab VM, which does not have this problem.
+
+`setup/preflight.sh` reports WSL2 as `GO WITH CAVEATS`, never a clean `GO`. `setup/install.sh`
+tells you the above and asks you to agree before it changes anything on a WSL2 machine. Full
+detail is in [TROUBLESHOOTING.md](TROUBLESHOOTING.md#wsl2).
 
 ## Which account to use
 
@@ -300,7 +324,7 @@ anything here.
 | Platform | Status |
 |---|---|
 | Linux x86_64 | Tested — preflight, dry run, real run, idempotency, failure injection, repair loop |
-| WSL2 | Same code path as Linux; not yet run end to end by a human |
+| Windows + WSL2 | **Limited support.** Same code path as Linux for the toolchain, and a tester confirmed the toolchain and `gcloud` work. Antigravity failed to open folders on WSL paths for him; a drive-letter mapping worked around it and was then lost on restart. Not run end to end on Windows |
 | macOS (Apple Silicon) | Preflight and the assistant flow confirmed on macOS 26.6.2 / arm64 with Gemini 3.8 Flash — report card correct, account warning correct, approval gate held. The install itself not yet completed end to end |
 | macOS (Intel) | Not yet run |
 
