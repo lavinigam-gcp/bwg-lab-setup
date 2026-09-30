@@ -598,31 +598,34 @@ jobs:
           # real code. The copy lives outside the repo, so $LAB_SKILLS_SRC resolves
           # empty and `--only skills` is a branch that returns 0 having written
           # nothing, which is what makes the "it continued" cases safe to assert on.
-          rm -rf /tmp/wslfx /tmp/wh; mkdir -p /tmp/wslfx
+          rm -rf /tmp/wslfx /tmp/wh; mkdir -p /tmp/wslfx/setup
+          # Copy the whole setup/ folder, not just install.sh: a full dry run reaches the
+          # Python step, which needs requirements-lock.txt next to the script.
+          cp setup/requirements-lock.txt setup/lab-phase.sh /tmp/wslfx/setup/
           sed 's#grep -qi microsoft /proc/version 2>/dev/null && OS=wsl2#OS=wsl2#' \
-            setup/install.sh > /tmp/wslfx/install.sh
-          grep -q '^          OS=wsl2 ;;$' /tmp/wslfx/install.sh \
+            setup/install.sh > /tmp/wslfx/setup/install.sh
+          grep -q '^          OS=wsl2 ;;$' /tmp/wslfx/setup/install.sh \
             || { echo "the WSL2 fixture did not patch the platform branch"; exit 1; }
-          bash -n /tmp/wslfx/install.sh || { echo "the WSL2 fixture does not parse"; exit 1; }
+          bash -n /tmp/wslfx/setup/install.sh || { echo "the WSL2 fixture does not parse"; exit 1; }
           wsl() { # answer-or-empty  extra-args...
             local ans="$1"; shift
             rm -rf /tmp/wh; mkdir -p /tmp/wh
             WSLC=0
             if [ -z "$ans" ]; then
               env HOME=/tmp/wh LAB_HOME=/tmp/wh/novasmart-lab \
-                bash /tmp/wslfx/install.sh --track 2 --only skills --root /tmp/wh/root \
+                bash /tmp/wslfx/setup/install.sh --track 2 --only skills --root /tmp/wh/root \
                 "$@" > /tmp/wsl.out 2>&1 < /dev/null || WSLC=$?
             else
               # `script` gives the child a real pty, so [ -t 0 ] is true, and feeds
               # it the answer. This is the only way to exercise the prompt in CI.
               printf '%s\n' "$ans" | script -qec \
-                "env HOME=/tmp/wh LAB_HOME=/tmp/wh/novasmart-lab bash /tmp/wslfx/install.sh --track 2 --only skills --root /tmp/wh/root $*" \
+                "env HOME=/tmp/wh LAB_HOME=/tmp/wh/novasmart-lab bash /tmp/wslfx/setup/install.sh --track 2 --only skills --root /tmp/wh/root $*" \
                 /dev/null > /tmp/wsl.raw 2>&1 || WSLC=$?
               tr -d '\r' < /tmp/wsl.raw > /tmp/wsl.out
             fi
           }
-          w_has()  { grep -qF "$1" /tmp/wsl.out || { echo "MISSING: $1"; cat /tmp/wsl.out; exit 1; }; }
-          w_hasnt(){ grep -qF "$1" /tmp/wsl.out && { echo "SHOULD NOT APPEAR: $1"; cat /tmp/wsl.out; exit 1; }; return 0; }
+          w_has()  { grep -qF -- "$1" /tmp/wsl.out || { echo "MISSING: $1"; cat /tmp/wsl.out; exit 1; }; }
+          w_hasnt(){ grep -qF -- "$1" /tmp/wsl.out && { echo "SHOULD NOT APPEAR: $1"; cat /tmp/wsl.out; exit 1; }; return 0; }
 
           # 1. No terminal and no --yes: STOP. This used to warn and carry straight
           #    on, which made the limited-support notice advisory. On an --only run,
@@ -661,7 +664,7 @@ jobs:
           # 5. A dry run never blocks, on WSL2 or anywhere else.
           rm -rf /tmp/wh; mkdir -p /tmp/wh
           c=0
-          env HOME=/tmp/wh bash /tmp/wslfx/install.sh --track 2 --dry-run \
+          env HOME=/tmp/wh bash /tmp/wslfx/setup/install.sh --track 2 --dry-run \
             > /tmp/wsl.out 2>&1 < /dev/null || c=$?
           [ "$c" = 0 ] || { echo "WSL2 dry run exited $c, wanted 0"; cat /tmp/wsl.out; exit 1; }
           w_has "DRY RUN - nothing will be changed"
@@ -711,11 +714,11 @@ jobs:
                    "Use only this skill while you are setting the laptop up." \
                    "Do not write your own list of the things only a human can do." \
                    "Do not run \`--readiness\` yourself."; do
-            grep -qF "$s" "$S" || { echo "SKILL.md lost its guard: $s"; exit 1; }
+            grep -qF -- "$s" "$S" || { echo "SKILL.md lost its guard: $s"; exit 1; }
           done
           for s in "hand back a short list of the things only a human can do" \
                    "These cannot be automated. List whichever still apply"; do
-            grep -qF "$s" "$S" && { echo "SKILL.md still generates a hand-off list: $s"; exit 1; }
+            grep -qF -- "$s" "$S" && { echo "SKILL.md still generates a hand-off list: $s"; exit 1; }
           done
           echo "the setup skill defers sign-in to the readiness check"
 
@@ -817,7 +820,7 @@ jobs:
           grep -q "Desktop/Session3/.agents/skills" /tmp/dry2.out \
             || { echo "default run stopped creating the session folders"; exit 1; }
           for leak in "build-with-gemini" "nodejs gh" "starter kit"; do
-            grep -q "$leak" /tmp/dry2.out \
+            grep -q -- "$leak" /tmp/dry2.out \
               && { echo "Track 3 content leaked into the default run: $leak"; exit 1; }
           done
           test ! -d /tmp/ci2
