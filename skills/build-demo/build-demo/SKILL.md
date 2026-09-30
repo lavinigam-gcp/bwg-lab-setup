@@ -9,7 +9,13 @@ description: >-
   make a page or an app about this — or types `/build-demo`, `build-demo`, or "brainstorm a demo".
   ⛔ Never load during mission work itself: registering an agent, splitting a shared login, right-sizing
   access, controlling who may invoke what, screening content, evaluating, verifying, scorecards and
-  audit-log proof all belong to `novasmart-governance-lab`, not here. Asks at most four questions,
+  audit-log proof all belong to `novasmart-governance-lab`, not here.
+  ⛔ Never load while the laptop is being set up, installed, repaired, or checked for readiness.
+  "Set up my laptop", "am I ready", "am I ready for the lab", "check my setup" and "verify my
+  environment" all belong to `bwg-lab-setup`, even when they are asked with this folder open. The
+  toolchain, the Python environment, the session folders and verify.sh are not this skill's
+  business, and answering them here would ask for cloud credentials that are not issued until the
+  event. Asks at most four questions,
   writes no code, creates no resource, and never blocks — "just build it" ends it immediately.
 ---
 

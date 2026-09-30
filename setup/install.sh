@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Build with Gemini lab - laptop setup for Track 2 and Track 3.
 # Track 2: the NovaSmart governance lab. Track 3: the agent-first app starter kit.
-# Idempotent: safe to re-run. Nothing here is destructive without --force.
+# Idempotent: re-running replaces the lab skill folders it installed under Desktop/Session*/; nothing else is destructive without --force.
+# Exit: 0 done · 1 a step failed · 2 preflight NO-GO · 64 bad flag, step or track · 66 no terminal to ask consent on, nothing changed
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -48,7 +49,7 @@ DRY=0; ONLY=""; ASSUME_YES=0; FORCE=0; WITH_EXTRAS=0; SKIP_PREFLIGHT=0
 TRACK="${BWG_TRACK:-}"
 LOG="$LAB_HOME/install.log"
 
-usage() { sed -n '2,4p' "$0"; cat <<EOF
+usage() { sed -n '2,5p' "$0"; cat <<EOF
 
 Usage: install.sh [options]
   --track {2,3}      which track to set up. Without it the script asks, and falls
@@ -57,7 +58,8 @@ Usage: install.sh [options]
   --only STEP        run one step: ${ALL_STEPS[*]}
                      --only starterkit implies --track 3 when no track is given
   --with-extras      also install ffmpeg, VS Code, Playwright's browser
-  --force            rebuild an existing venv, or overwrite existing session folders.
+  --force            rebuild an existing venv. The lab skill folders under
+                     Desktop/Session*/ are replaced on every run with or without it.
                      On Track 3 it also moves an existing starter-kit folder aside,
                      with any work you have done in it, and fetches the kit again
   --yes              do not prompt (does NOT override a preflight NO-GO)
@@ -100,7 +102,7 @@ done
 on_err() {
   local rc=$?
   printf '\n\033[31mfailed\033[0m during step "%s" (exit %s)\n' "${CURRENT_STEP:-?}" "$rc" >&2
-  printf 'retry just this step with:  bash %s --only %s\n' "$0" "${CURRENT_STEP:-all}" >&2
+  printf 'retry just this step with:  bash %s --only %s\n' "$SCRIPT_DIR/install.sh" "${CURRENT_STEP:-all}" >&2
   exit "$rc"
 }
 trap on_err ERR
@@ -109,7 +111,11 @@ say()  { printf '\n\033[1m==> %s\033[0m\n' "$*"; }
 info() { printf '    %s\n' "$*"; }
 warn() { printf '    \033[33mwarning:\033[0m %s\n' "$*" >&2; }
 die()  { printf '\n\033[31mfailed:\033[0m %s\n' "$*" >&2
-         printf 'retry just this step with:  %s --only %s\n' "$0" "${CURRENT_STEP:-all}" >&2
+         # Same form as on_err above. These two used to disagree: one said `bash <path>`
+         # and the other said `<path>` with a bare $0, so from a relative invocation the
+         # attendee was told to run a command that only worked from the directory they
+         # happened to be standing in.
+         printf 'retry just this step with:  bash %s --only %s\n' "$SCRIPT_DIR/install.sh" "${CURRENT_STEP:-all}" >&2
          exit 1; }
 
 run() {
@@ -212,10 +218,30 @@ wsl_gate() {
     info "    workaround. It DOES NOT survive a restart, so you may have to redo it."
     info "  - You do not have to do this. You can use the provided lab VM, or set up"
     info "    on location at the event with a helper, instead."
+    # --yes is deliberately NOT consulted here. When there is a terminal, a WSL2
+    # attendee is shown the limited-support disclosure and answers it themselves,
+    # because "I accept the default install" is not the same statement as "I accept
+    # that this platform is only partly supported".
     printf '    Continue on WSL2 anyway? [y/N] '; read -r a
     case "$a" in y|Y) ;; *) echo "  Stopped. Nothing was changed."; exit 0 ;; esac
+  elif [ "$DRY" = 1 ]; then
+    # A dry run changes nothing, so it must never block. It still says the platform is
+    # limited support, on stderr, so the notice is not lost in a rehearsal.
+    warn "WSL2 detected - dry run, nothing will be changed. Windows is limited support: Antigravity may fail to open folders on WSL paths, the drive-letter workaround does not survive a restart, and the provided lab VM or setup on location at the event remain your alternatives."
+  elif [ "$ASSUME_YES" = 1 ]; then
+    warn "WSL2 detected and no terminal to ask on - --yes given, continuing. Windows is limited support: Antigravity may fail to open folders on WSL paths, the drive-letter workaround does not survive a restart, and the provided lab VM or setup on location at the event remain your alternatives."
   else
-    warn "WSL2 detected and no terminal to ask on - continuing. Windows is limited support: Antigravity may fail to open folders on WSL paths, the drive-letter workaround does not survive a restart, and the provided lab VM or setup on location at the event remain your alternatives."
+    # A real run, on a limited-support platform, with nothing to ask consent on. This
+    # used to warn and carry on, which made the WSL2 disclosure advisory rather than a
+    # gate. Same wording and same exit code as the no-TTY arm of gate() below, so an
+    # attendee and a log reader see one behaviour and not two.
+    printf '\n  Stopped. Nothing was changed.\n' >&2
+    printf '  WSL2 was detected and there is no terminal here to ask you for consent on.\n' >&2
+    printf '  Windows is limited support: Antigravity may fail to open folders on WSL\n' >&2
+    printf '  paths, the drive-letter workaround does not survive a restart, and the\n' >&2
+    printf '  provided lab VM or setup on location at the event remain your alternatives.\n' >&2
+    printf '  Run this from a terminal, or pass --yes to accept that and continue.\n' >&2
+    exit 66
   fi
 }
 
@@ -244,9 +270,20 @@ step_tools() {
     fi
     if [ "$IS_INTEL_MAC" = 1 ] && ! need cargo; then
       warn "Intel Mac: 'cryptography' has no Intel wheel and must be compiled."
-      confirm "Install Rust and Xcode command line tools now?" \
-        && { run xcode-select --install || true; run brew install rust; } \
-        || warn "Skipping. The python step will fail without them."
+      # A real if/else, not `confirm && { ... } || warn`. In that form a failing
+      # `brew install rust` fell into the || arm and printed "Skipping", which was
+      # untrue: the attendee did not skip, it broke. The || also hid the failure from
+      # set -e, so the run carried on into step_python and died there compiling
+      # 'cryptography', with an error that named neither Rust nor this prompt.
+      if confirm "Install Rust and Xcode command line tools now?"; then
+        # This one really is ignorable: it exits non-zero when the tools are already
+        # installed, which is the common case.
+        run xcode-select --install || true
+        run brew install rust \
+          || die "could not install Rust. The python step needs it to compile 'cryptography' on an Intel Mac"
+      else
+        warn "Skipping Rust. The python step will fail without it."
+      fi
     fi
   else
     # DEBIAN_FRONTEND must be passed THROUGH sudo: sudo's env_reset strips it, and
@@ -517,45 +554,116 @@ CURRENT_STEP=""
 # --skip-preflight exists for re-runs and repairs; --yes alone does NOT bypass a NO-GO.
 gate() {
   [ "$DRY" = 1 ] && return 0
-  [ "$SKIP_PREFLIGHT" = 1 ] && { info "preflight skipped (--skip-preflight)"; return 0; }
-  if [ ! -x "$SCRIPT_DIR/preflight.sh" ]; then
-    warn "preflight.sh not found - continuing without it"; return 0
-  fi
-  # `cmd; rc=$?` is NOT set -e safe: the non-zero exit fires the ERR trap before the
-  # assignment runs. preflight returns 1 for GO WITH CAVEATS, which is the common case,
-  # so this killed the installer on most real machines.
-  local pf=0
-  bash "$SCRIPT_DIR/preflight.sh" || pf=$?
-  case "$pf" in
-    0) say "Preflight: GO" ;;
-    1) say "Preflight: GO WITH CAVEATS" ;;
-    2) printf '\n\033[31mPreflight says NO-GO.\033[0m This laptop is missing something it cannot do without.\n' >&2
-       printf 'Fix the blocking items above, or use the provided lab VM.\n' >&2
-       printf 'If you believe this is wrong, re-run with --skip-preflight.\n' >&2
-       exit 2 ;;
-    *) warn "preflight could not assess this machine (exit $pf)" ;;
-  esac
-  echo
-  echo "  install.sh is about to set up Track $TRACK and change this machine. It will:"
-  echo "    - install packages with $PKG (this needs sudo on Linux)"
-  echo "    - create $LAB_HOME and a Python 3.14 virtual environment there"
-  if [ "$TRACK" = 3 ]; then
-    echo "    - install the GitHub CLI (gh), which Track 3 needs to publish your project"
-    echo "    - clone the community Track 3 starter kit into $KIT_DIR"
-    echo "      from $KIT_URL, which this repository does not maintain,"
-    echo "      pinned at ${KIT_REF:-whatever its default branch holds today}"
+  # This function has two halves: run preflight, then ask for consent. Skipping the
+  # first must not skip the second. Both of these cases used to `return 0` out of the
+  # whole function, so `install.sh --skip-preflight`, and any machine where
+  # preflight.sh was missing or not executable, changed the laptop without ever
+  # showing the screen that says what is about to change. `--skip-preflight` is
+  # documented as "do not run preflight first" and nothing more, and the comment above
+  # this function already states the rule the code was breaking.
+  if [ -n "$ONLY" ]; then
+    # Deliberate: --only runs preflight's SECOND half only. A --only run is a repair on
+    # a machine that is already known to be failing something, and it is the command
+    # printed by verify.sh --fix-hints and by the skill's repair table. Running
+    # preflight there would often return NO-GO and refuse the very repair that clears
+    # it, which is a worse outcome than a repair with no fresh assessment. The consent
+    # half below still runs, narrowed to the one step, because consent is about what is
+    # going to change and that does not stop mattering for a repair.
+    info "preflight skipped (--only $ONLY repairs one step)"
+  elif [ "$SKIP_PREFLIGHT" = 1 ]; then
+    info "preflight skipped (--skip-preflight)"
+  elif [ ! -x "$SCRIPT_DIR/preflight.sh" ]; then
+    warn "preflight.sh not found - continuing without it"
   else
-    echo "    - create session folders under $LAB_ROOT/Desktop/"
-    echo "    - print one export line for you to add to your shell profile yourself"
+    # `cmd; rc=$?` is NOT set -e safe: the non-zero exit fires the ERR trap before the
+    # assignment runs. preflight returns 1 for GO WITH CAVEATS, which is the common case,
+    # so this killed the installer on most real machines.
+    local pf=0
+    bash "$SCRIPT_DIR/preflight.sh" || pf=$?
+    case "$pf" in
+      0) say "Preflight: GO" ;;
+      1) say "Preflight: GO WITH CAVEATS" ;;
+      2) printf '\n\033[31mPreflight says NO-GO.\033[0m This laptop is missing something it cannot do without.\n' >&2
+         printf 'Fix the blocking items above, or use the provided lab VM.\n' >&2
+         printf 'If you believe this is wrong, re-run with --skip-preflight.\n' >&2
+         exit 2 ;;
+      *) warn "preflight could not assess this machine (exit $pf)" ;;
+    esac
   fi
-  # This used to promise a shell-profile edit. step_register only ever printed a line
-  # for the user to copy, and on Track 3 it does not print even that. Over-disclosing on
-  # a consent screen is the safe direction to be wrong in, but it is still wrong.
-  echo "  It edits no shell profile of yours."
-  echo "  Nothing outside those paths is touched. Re-runnable and idempotent."
+  echo
+  if [ -n "$ONLY" ]; then
+    # Narrowed disclosure. A repair changes far less than a full run, and listing the
+    # full run's effects here would be a false statement about what is about to happen.
+    echo "  install.sh is about to run one step on this machine: $ONLY. It will:"
+    case "$ONLY" in
+      tools)
+        echo "    - install packages with $PKG (this needs sudo on Linux)"
+        [ "$TRACK" = 3 ] && echo "    - install the GitHub CLI (gh), which Track 3 needs to publish your project"
+        ;;
+      python)
+        echo "    - create $LAB_HOME and a Python 3.14 virtual environment there"
+        echo "    - install 120 pinned packages into that virtual environment"
+        [ "$FORCE" = 1 ] && echo "    - --force: delete and rebuild $LAB_HOME/.venv first"
+        [ "$WITH_EXTRAS" = 1 ] && echo "    - --with-extras: download Playwright's browser into $HOME/.cache/ms-playwright"
+        ;;
+      skills)
+        echo "    - read the lab skills in ${LAB_SKILLS_SRC:-(no source given, so this step does nothing)}"
+        echo "    - it writes nothing outside that directory"
+        ;;
+      sessions)
+        echo "    - create session folders under $LAB_ROOT/Desktop/"
+        echo "    - replace the lab skill folders inside their .agents/skills/"
+        ;;
+      register)
+        echo "    - register the agents-cli lifecycle skills with Antigravity"
+        [ "$TRACK" = 2 ] && echo "    - print one export line for you to add to your shell profile yourself"
+        ;;
+      starterkit)
+        echo "    - clone the community Track 3 starter kit into $KIT_DIR"
+        echo "      from $KIT_URL, which this repository does not maintain,"
+        echo "      pinned at ${KIT_REF:-whatever its default branch holds today}"
+        [ "$FORCE" = 1 ] && echo "    - --force: move an existing $KIT_DIR aside, with any work in it, and fetch again"
+        ;;
+    esac
+    echo "  It edits no shell profile of yours."
+    echo "  No other step runs, and nothing outside those paths is touched."
+  else
+    echo "  install.sh is about to set up Track $TRACK and change this machine. It will:"
+    echo "    - install packages with $PKG (this needs sudo on Linux)"
+    echo "    - create $LAB_HOME and a Python 3.14 virtual environment there"
+    if [ "$TRACK" = 3 ]; then
+      echo "    - install the GitHub CLI (gh), which Track 3 needs to publish your project"
+      echo "    - clone the community Track 3 starter kit into $KIT_DIR"
+      echo "      from $KIT_URL, which this repository does not maintain,"
+      echo "      pinned at ${KIT_REF:-whatever its default branch holds today}"
+    else
+      echo "    - create session folders under $LAB_ROOT/Desktop/"
+      echo "    - print one export line for you to add to your shell profile yourself"
+    fi
+    # This used to promise a shell-profile edit. step_register only ever printed a line
+    # for the user to copy, and on Track 3 it does not print even that. Over-disclosing
+    # on a consent screen is the safe direction to be wrong in, but it is still wrong.
+    echo "  It edits no shell profile of yours."
+    echo "  Nothing outside those paths is touched. Re-runnable and idempotent."
+  fi
   echo
   if [ "$ASSUME_YES" = 1 ]; then
     info "--yes given, proceeding without asking"
+  elif [ ! -t 0 ]; then
+    # A real run with nothing to ask on: a pipe, a nohup, an automated rehearsal.
+    # Consent cannot be given, so nothing is installed. This used to fall straight
+    # into the `read` below, which hit end of file, returned non-zero, tripped the
+    # ERR trap and exited with nothing useful on screen. Someone running
+    # `curl ... | bash` saw a bare failure and no reason for it.
+    #
+    # Exit 66, not 0: nothing was installed, and a caller that cannot see a terminal
+    # is exactly the caller that needs to be told that in its exit status. A dry run
+    # never reaches here, because gate() returns before this on --dry-run.
+    printf '\n  Stopped. Nothing was changed.\n' >&2
+    printf '  There is no terminal here to ask you for consent on, and this script does\n' >&2
+    printf '  not change a machine without being told to. Run it from a terminal, or\n' >&2
+    printf '  pass --yes to accept the changes listed above without being asked.\n' >&2
+    exit 66
   else
     printf '  Continue? [y/N] '; read -r a
     case "$a" in y|Y) ;; *) echo "  Stopped. Nothing was changed."; exit 0 ;; esac
@@ -563,18 +671,32 @@ gate() {
 }
 
 main() {
-  # Before anything, including the preflight gate: --only skips gate() but still does
-  # work, so the Windows notice cannot live inside gate().
+  # The Windows notice is its own gate and runs before everything, including the
+  # preflight gate, because it can end the run on its own.
   wsl_gate
-  if [ "$DRY" = 1 ]; then say "DRY RUN - nothing will be changed"
-  else mkdir -p "$LAB_HOME" 2>/dev/null || true; fi
+  [ "$DRY" = 1 ] && say "DRY RUN - nothing will be changed"
   local steps=("${TRACK_STEPS[@]}")
-  [ -z "$ONLY" ] && gate
+  # Validate --only BEFORE gate, so a typo is still refused with exit 64 straight away
+  # instead of after a consent screen for a step that does not exist.
   if [ -n "$ONLY" ]; then
     # shellcheck disable=SC2076
     [[ " ${ALL_STEPS[*]} " == *" $ONLY "* ]] || { echo "unknown step: $ONLY" >&2; exit 64; }
     steps=("$ONLY")
   fi
+  # gate is called UNCONDITIONALLY. It used to be `[ -z "$ONLY" ] && gate`, which meant
+  # that `install.sh --only python` installed a toolchain, created $LAB_HOME, built a
+  # venv and wrote files without ever disclosing any of it or asking anyone. --only is
+  # the command this repository tells attendees to run to repair a machine, so it was
+  # the most likely path to take and the only one with no consent on it. gate now
+  # decides for itself what to skip: preflight yes, consent never.
+  gate
+  # AFTER the gate, not before it. This used to sit above gate, so a run that then
+  # stopped at the consent gate and printed "Stopped. Nothing was changed." had
+  # already created $LAB_HOME. One empty directory is a small lie, and on a screen
+  # whose whole job is to be believed it is not one worth keeping. Nothing between
+  # here and the gate needs the directory: preflight makes its own when it saves a
+  # verdict, and run()'s log line is only written once a step is running.
+  [ "$DRY" = 1 ] || mkdir -p "$LAB_HOME" 2>/dev/null || true
   for s in "${steps[@]}"; do CURRENT_STEP="$s"; "step_$s"; done
   local vflag=""
   [ "$TRACK" = 3 ] && vflag=" --track 3"

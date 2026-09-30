@@ -8,9 +8,13 @@ description: >-
   missions). Gives you the guardrails, output format, verified command surfaces and spoiler-fenced
   orientation so you act fast instead of re-researching the missions. A guide, not an answer key — the
   leader must still discover the estate. On each mission, read the matching references/mN.md.
-  Never load while the laptop is being set up, installed or repaired: the toolchain, the Python
-  environment, the session folders and verify.sh belong to the `bwg-lab-setup` skill, not here.
-  This skill starts once the lab session itself opens.
+  Never load while the laptop is being set up, installed, repaired, or checked for readiness: the
+  toolchain, the Python environment, the session folders and verify.sh belong to the
+  `bwg-lab-setup` skill, not here. That includes readiness questions such as "am I ready", "am I
+  ready for the lab", "check my setup" and "verify my environment". Those belong to
+  `bwg-lab-setup` even when they are asked with this folder open, and answering them here would
+  ask for cloud credentials that are not issued until the event. This skill starts once the lab
+  session itself opens and the user is working as the Head of AI Platform & Security.
 ---
 
 # NovaSmart Governance Lab — steering skill for `agy`

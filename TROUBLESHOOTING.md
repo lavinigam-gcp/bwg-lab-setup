@@ -25,10 +25,21 @@ finished step does nothing.
 
 ### Exit codes
 
-| Script | 0 | 1 | 2 | 3 |
-|---|---|---|---|---|
-| `preflight.sh` | GO | GO WITH CAVEATS | NO-GO | could not assess |
-| `verify.sh` | all pass | drift | something missing | no virtual environment |
+| Script | 0 | 1 | 2 | 3 | 64 | 66 |
+|---|---|---|---|---|---|---|
+| `install.sh` | done | a step failed | preflight said NO-GO | — | bad flag, bad `--only` step, or bad track | no terminal to ask for consent on, nothing changed |
+| `preflight.sh` | GO | GO WITH CAVEATS | NO-GO | — | bad flag or bad `BWG_PHASE` | — |
+| `verify.sh` | all pass | drift | something missing | no virtual environment | bad flag or bad `BWG_PHASE` | — |
+
+**About `install.sh` exit 66.** `install.sh` never changes a machine without disclosing what it is
+about to do and getting a yes. When it is run with no terminal attached, for example through a
+pipe, under `nohup`, or from an automated rehearsal, there is nothing to ask on, so it prints
+`Stopped. Nothing was changed.` and exits 66 before any step runs. The same thing happens on WSL2,
+where the limited-support notice is its own consent question. Two ways past it, both deliberate:
+run it from a terminal and answer the prompt, or pass `--yes` to accept the disclosed changes in
+advance. `--only`, `--skip-preflight` and `BWG_TRACK` do not get you past it: they change what runs
+or whether the machine is assessed first, never whether you were asked. A dry run
+(`install.sh --dry-run`) changes nothing, so it never asks and never exits 66.
 
 ---
 
@@ -204,9 +215,8 @@ Your working directory is under `/mnt/c/`. Move it into the Linux filesystem (`~
 It has no Windows build and never has, so the pinned set cannot be installed as written. Use WSL2.
 
 If you truly cannot: remove the `uvloop` line from `requirements-lock.txt` before installing —
-`uvicorn` falls back to the standard asyncio loop, slower but working — fetch the `agy` Windows
-binary by hand from the release manifest, and expect the shell scripts not to run. This combination
-has never been tested end to end.
+`uvicorn` falls back to the standard asyncio loop, slower but working — and expect the shell
+scripts not to run. This combination has never been tested end to end.
 
 ---
 
@@ -462,6 +472,96 @@ These are not bugs, and no amount of reinstalling fixes them.
 | `sessions` / `lab-skill` / `packages` failing on Track 3 | You ran the Track 2 profile. Add `--track 3` |
 | A warning that no `--track` was given | You did not pass one, so Track 2 was assumed. Harmless on Track 2, wrong on Track 3 |
 | The starter kit is newer than this repo describes | Expected. It is a separate repository on its own schedule |
+
+---
+
+## Reset this laptop for a re-test
+
+You do not normally need this. Re-running `install.sh` on a machine that is already set up is
+safe and is the supported way to repair it: every step is idempotent, and the only thing a re-run
+replaces is the lab skill folders it installed itself. Use this section when you want to rehearse
+the setup from a clean state, or when you are handing the laptop back.
+
+There is no `--uninstall`. Removing things is deliberately left to you, because most of what the
+installer puts on a machine is ordinary developer tooling that you may well want to keep.
+
+**What the installer creates or changes, both tracks**
+
+| Path | Created by | Removed by a re-run? |
+|---|---|---|
+| `~/novasmart-lab/` | the main run, and the python step | no |
+| `~/novasmart-lab/.venv/` | the python step | only with `--force` |
+| `~/novasmart-lab/install.log` | every run, appended | no, it grows |
+| `~/novasmart-lab/preflight-verdict` | every `preflight.sh` run, overwritten | no |
+| `~/.local/bin/uv`, `~/.local/bin/uvx` | the tools step | no |
+| uv's Python 3.14 toolchain, under `~/.local/share/uv` | the tools step | no |
+| uv's download cache, under `~/.cache/uv` (`~/Library/Caches/uv` on macOS) | the tools and python steps | no, it grows |
+| Linux apt packages: `curl wget gnupg ca-certificates apt-transport-https git build-essential google-cloud-cli nodejs` | the tools step | no |
+| Linux apt sources: `/usr/share/keyrings/cloud.google.gpg`, `/etc/apt/sources.list.d/google-cloud-sdk.list`, and the NodeSource keyring and list | the tools step | no |
+| macOS brew: `git`, `node@24`, the `gcloud-cli` cask, and `rust` on an Intel Mac | the tools step | no |
+| whatever `agents-cli setup` and `agents-cli update` register globally | the register step | not by this repo |
+
+**Track 2 adds**
+
+| Path | Created by | Removed by a re-run? |
+|---|---|---|
+| `~/Desktop/Session1`, `Session2`, `Session3`, each with `.agents/skills/` | the sessions step | no |
+| the `novasmart-governance-lab`, `build-demo` and `bwgtrack2-demo-build` folders inside each of those | the sessions step | replaced on every run, with or without `--force` |
+| edits in place to `skills/**` in your clone, if any file there hardcodes the VM path `/config` | the skills step | no. This rewrites the clone's own tree |
+
+**Track 3 adds**
+
+| Path | Created by | Removed by a re-run? |
+|---|---|---|
+| `~/Desktop/build-with-gemini/` | the starterkit step | no |
+| `~/Desktop/build-with-gemini.superseded.<timestamp>/` | the starterkit step, under `--force` or on a broken or wrong-remote clone | no, one accumulates per run |
+| `gh`, by apt or brew | the tools step | no |
+
+**With `--with-extras`**
+
+| Path | Created by | Removed by a re-run? |
+|---|---|---|
+| `~/.cache/ms-playwright`, Playwright's Chromium, roughly 170 MB | the python step | no |
+| `ffmpeg`, by apt or brew | the tools step | no |
+| VS Code, with its keyring and apt list on Linux, or its cask on macOS | the tools step | no |
+
+**Not touched at all:** `~/.zshrc`, `~/.bashrc`, any other shell profile, and any gcloud
+credential or configuration. The installer prints the one `export` line for Track 2 and leaves it
+to you to add.
+
+**The minimal reset.** This removes everything the lab owns and nothing else:
+
+```bash
+rm -rf ~/novasmart-lab
+rm -rf ~/Desktop/Session1 ~/Desktop/Session2 ~/Desktop/Session3   # Track 2
+rm -rf ~/Desktop/build-with-gemini                                # Track 3
+rm -rf ~/Desktop/build-with-gemini.superseded.*                   # Track 3, if any
+rm -rf ~/.cache/ms-playwright                                     # --with-extras only
+```
+
+Check what is in the Track 3 folder before you delete it. After the lab starts, that folder is
+the attendee's own project, and nothing in this repo will have copied it anywhere else.
+
+Those paths are the defaults. If you ran the installer with `--root DIR` the session folders are
+under `DIR/Desktop/` instead, if you passed `--kit-dir DIR` the starter kit is at `DIR`, and if
+you set `LAB_HOME` the lab home is there rather than at `~/novasmart-lab`. Substitute
+accordingly. The `~/.cache/ms-playwright` line only matters if you used `--with-extras`; without
+it Playwright's browser was never downloaded and the directory will not exist, and `rm -rf` on a
+path that is not there is harmless.
+
+Two more caches are left in place on purpose, because they are uv's and not the lab's: the Python
+3.14 toolchain under `~/.local/share/uv` and the download cache under `~/.cache/uv`
+(`~/Library/Caches/uv` on macOS). Keeping them is what makes a re-test fast. If you want a
+genuinely cold rehearsal, `uv cache clean` and `uv python uninstall 3.14` clear them, and the
+next setup will re-download roughly 300 MB.
+
+**Leave the rest alone.** Removing the system packages is optional and usually not worth it:
+`git`, `curl`, `node`, `gh`, the Google Cloud CLI and `uv` are normal tools, and other things on
+the machine may now depend on them. If you do want them gone, remove them the way you would
+remove any other package, one at a time, and expect to re-download roughly 850 MB the next time
+you set the laptop up.
+
+To re-test from here, start again at `bash setup/preflight.sh`.
 
 ---
 

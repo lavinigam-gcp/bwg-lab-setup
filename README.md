@@ -165,12 +165,22 @@ bash setup/install.sh --track 2     # NovaSmart governance lab
 bash setup/install.sh --track 3     # agent-first app, with the Track 3 starter kit
 ```
 
-**Step 3 — confirm you are ready.** Use the same track you installed:
+**Step 3 — confirm you are ready.** Use the same track you installed. Run this from the
+setup folder, in a terminal:
 
 ```bash
+cd ~/novasmart-lab/setup
 bash setup/verify.sh --readiness              # Track 2
 bash setup/verify.sh --readiness --track 3    # Track 3
 ```
+
+Run it as a command rather than asking the assistant, and run it before you open the lab
+folder. On Track 3 the starter kit ships a skill of its own called `troubleshoot-lab-setup`,
+which answers questions like "am I ready to start" and tells you to sign in to Google Cloud.
+That skill belongs to the lab, not to setup, and before the event there is nothing to sign
+in with. Running the command yourself avoids the question entirely and gives you the
+readiness report itself rather than a summary of it. If you would rather ask the assistant,
+ask it with the SETUP folder open, not the lab folder.
 
 `verify.sh` checks the shared toolchain for both tracks, then the part that belongs to your track:
 session folders and the governance-lab skill for Track 2, the cloned starter kit and `gh` for
@@ -238,7 +248,11 @@ Why this matters:
 - Anything the lab creates while you are signed in as yourself lands in **your** project, and any
   charges land on **your** billing account.
 
-Before you start, confirm all three agree:
+**None of this can be done before the event.** The Qwiklabs account is handed to you on the
+day, so there is nothing to sign in with yet. `verify.sh --readiness` tracks where the
+sign-in stands and tells you when it is time. What follows is for the day itself.
+
+On the day, confirm all three agree:
 
 ```bash
 gcloud auth list                  # the active account must be the lab account
@@ -255,8 +269,10 @@ gcloud auth login                 # the lab account
 gcloud auth application-default login
 ```
 
-`setup/preflight.sh` reports the active account and warns if it does not look like a lab account,
-but it cannot tell for certain — the check is yours to make.
+On the day of the event, `setup/preflight.sh` warns if the active account does not look like a lab
+account. It cannot tell for certain, so the check is yours to make. Before the event it reports
+your own account without comment, because a personal account a week out is expected and there is
+nothing you can do about it until the lab credentials exist.
 
 ## What gets installed
 
@@ -276,8 +292,11 @@ Roughly 850 MB of downloads, 45–90 minutes, mostly waiting.
 ## Command reference
 
 ```
-setup/preflight.sh [--json]
-  exit 0 GO · 1 GO WITH CAVEATS · 2 NO-GO · 3 could not assess
+setup/preflight.sh [--json] [--track {2,3}]
+  --track {2,3}      recorded on the report card and in the saved verdict. It changes
+                     nothing that is measured: every check is the same for either track
+  exit 0 GO · 1 GO WITH CAVEATS · 2 NO-GO · 64 bad flag
+  Records its verdict in ~/novasmart-lab/preflight-verdict, which verify.sh reads.
 
 setup/install.sh [options]
   --track {2,3}      which track to set up. Without it the installer asks, and
@@ -296,14 +315,30 @@ setup/install.sh [options]
   --kit-url URL      Track 3: the starter kit repository, a community repo
   --kit-ref REF      Track 3: the commit, tag or branch to check out. Empty
                      follows the default branch instead of the pin
+  exit 0 done · 1 a step failed · 2 preflight NO-GO · 64 bad flag, step or track
+       · 66 no terminal to ask for consent on, nothing changed
+  It always says what it is about to change and asks before it changes it. With
+  no terminal to ask on it stops and exits 66. --only, --skip-preflight and
+  BWG_TRACK do not get past that; a terminal or --yes does. See TROUBLESHOOTING.md.
 
 setup/verify.sh [--json] [--fix-hints] [--readiness] [--track {2,3}]
                 [--root DIR] [--lab-home DIR] [--venv DIR] [--kit-dir DIR]
                 [--preflight-verdict {go,caveats,no-go,unknown}]
   --preflight-verdict  what preflight.sh said earlier, in its own three words.
                        Changes only the readiness text, never the exit code.
-                       Default: unknown, which lets verify.sh decide on its own
+                       You do not normally need this: preflight records its
+                       verdict and verify.sh reads it. Pass it to override that
   exit 0 all pass · 1 drift · 2 missing · 3 no virtual environment · 64 bad flag
+
+Environment variables, for both scripts:
+  BWG_TRACK    2 or 3, the same as --track
+  BWG_PHASE    pre-event or day-of, overriding how the scripts decide whether
+               your lab credentials have been issued. They decide it from the
+               active gcloud project: a project id starting with qwiklabs-gcp-
+               means the event has started, and anything else means it has not.
+               Set this only if that is wrong for you, for example during a
+               rehearsal on a project that is not a Qwiklabs one. Anything other
+               than those two words exits 64
 ```
 
 The Python set is installed with `--no-deps`, because `requirements-lock.txt` is the complete
@@ -355,5 +390,9 @@ Intel Macs need Rust and the Xcode command line tools, because the pinned `crypt
 longer publishes an Intel wheel. `install.sh` detects this and offers to install them.
 
 Problems: **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** covers every failure we have seen, by
-operating system. See [CONTRIBUTING.md](CONTRIBUTING.md) for what to include in an issue.
+operating system. Undoing it all, or rehearsing the setup from a clean machine, is
+**[Reset this laptop for a re-test](TROUBLESHOOTING.md#reset-this-laptop-for-a-re-test)**: it
+lists exactly what the installer creates per track and the minimal commands to remove it.
+Re-running `install.sh` on a machine that is already set up is safe, so you rarely need it.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for what to include in an issue.
 Licensed under [Apache 2.0](LICENSE).

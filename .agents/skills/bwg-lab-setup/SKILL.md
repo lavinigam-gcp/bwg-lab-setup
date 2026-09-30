@@ -157,7 +157,16 @@ the middle of a setup transcript. It reports the parity table plus five readines
 according to whether the lab credentials have been issued, either what the user will do on the day
 of the event or what they can do now. That wording is its job, not yours.
 
-Exit codes: `0` all pass, `1` drift, `2` something missing, `3` no virtual environment.
+Exit codes: `0` all pass, `1` drift, `2` something missing, `3` no virtual environment, `64` a
+flag or a `BWG_PHASE` value this script does not accept. Treat 64 as "I typed the command wrong",
+not as "the machine is broken": read `verify.sh --help` and run it again.
+
+`install.sh` exit codes: `0` done, `1` a step failed, `2` preflight said NO-GO, `64` a bad flag,
+`--only` step or track, `66` no terminal to ask for consent on, so nothing was changed. 66 is not
+a machine fault either. `install.sh` always discloses what it will change and asks first, and
+nothing, including `--only` and `--skip-preflight`, skips that. If you hit 66, you are running it
+somewhere with no terminal attached: pass `--yes` to accept the disclosed changes, or have the
+user run it themselves in a terminal.
 
 The first seven checks are the shared toolchain and run for both tracks. After that the profiles
 diverge, and the `track` field in the JSON tells you which one you are reading:
@@ -183,10 +192,11 @@ each repair, and keep going until it returns 0 or you are blocked on a human.
 | `python` | Wrong interpreter, or venv built on an older Python | `uv python install 3.14`, then `install.sh --only python --force` |
 | `packages` not 120 | Resolution diverged or a build failed | Re-run `install.sh --only python`. On an Intel Mac see below |
 | `packages` is 121 or more | Someone installed an extra package into the lab venv | `install.sh --only python --force`. Plain `--only python` cannot fix this: it never uninstalls anything, so only rebuilding the venv clears it. The venv holds no work, so this is safe |
-| `google-adk`, `litellm`, `agents-cli` drift | Someone upgraded a package | `install.sh --only python --force` |
+| `google-adk`, `agents-cli`, `google-genai` drift | Someone upgraded a package | `install.sh --only python --force` |
+| `no-vendor-sdk` above 0 | `--no-deps` was dropped, so the resolver re-added LiteLLM or an OpenAI client. There is no `litellm` check: those packages are asserted absent, not pinned | `install.sh --only python --force`. Plain `--only python` never uninstalls, so only a rebuild clears it |
 | `config-paths` above 0 | The skills still carry the VM's `/config` paths | `install.sh --only skills --skills-src DIR` |
 | `sessions` below 3 | A session folder was deleted or never created | `install.sh --only sessions` |
-| `lab-skills` SKIP | The session folders are empty. The skills ARE bundled in this repo, so this means the sessions step did not run | `install.sh --only sessions` |
+| `lab-skills` not installed, session folders empty | The sessions step did not run. The skills ARE bundled in this repo, so this is not a missing-source problem. The row is reported as SKIP and is not counted as a failure | `install.sh --only sessions` |
 | `lab-skill` MISSING | A skills source was given but the copy did not land, or is nested too deep | `install.sh --only sessions --skills-src DIR`, then confirm each skill has `SKILL.md` at its own top level |
 | `node`, `gcloud` MISSING | Tool step did not complete | `install.sh --only tools` |
 | `kit` MISSING (Track 3) | The starter kit was never fetched, or an earlier clone was interrupted and left a `.git` with no checkout | `install.sh --track 3 --only starterkit`. It moves an unusable directory aside and fetches again |
@@ -243,24 +253,34 @@ Say these three things, and stop.
    `export NOVASMART_SCORECARD_HOME=...` line for their shell profile. Repeat it verbatim. This is
    the only manual step that belongs in your summary, because it can be done now and needs no
    credentials.
-3. **The two commands that end the setup**, in this order:
-   - `bash setup/verify.sh --readiness --track N --preflight-verdict WORD`, where WORD is `go`,
-     `caveats` or `no-go`, whichever preflight gave at step 1. `install.sh` prints this command
-     too; match it.
+3. **The two commands that end the setup**, in this order, and the order matters:
+   - `bash setup/verify.sh --readiness --track N`, run from the setup folder,
+     `~/novasmart-lab/setup`. `install.sh` prints the same command, without `--track` on
+     Track 2; add the track back, because it keeps the transcript readable. There is no need
+     to pass `--preflight-verdict`: preflight records its verdict where `verify.sh` reads it.
+     Pass that flag only to override what was recorded.
    - Open the folder for the track in Antigravity: `~/Desktop/Session1` for Track 2, or
      `~/Desktop/build-with-gemini` for Track 3. Name the exact folder rather than saying "open the
-     project", because opening the folder is also what loads its skills.
+     project", because opening the folder is also what loads its skills. This is second on
+     purpose. The Track 3 starter kit carries its own `troubleshoot-lab-setup` skill, which
+     answers readiness questions with a sign-in instruction that is wrong before the event, and
+     it cannot answer anything while its folder is still closed. Readiness first, folder after.
 
-Then let the readiness report answer everything else. It covers cloud sign-in, the Antigravity
-sign-in wizard, the lab project, and Track 3's `gh auth login`, and it words each one according to
-whether the event has started. Do not preview it, summarise it, or reorder what it will say.
+Then stop. The readiness report answers everything else, and it is the only thing here that knows
+whether the event has started. Do not preview its contents, do not summarise them, and do not name
+the topics it will cover. If you find yourself about to list what the user still has to do, that
+list is the bug: delete it and print the command instead.
 
 ## 6. Scope
 
-You may write to: `~/novasmart-lab/`, `~/Desktop/Session1`, `Session2`, `Session3`, and the user's
-shell profile. On Track 3, also `~/Desktop/build-with-gemini`, and there only to create the clone,
-never to delete or rewrite what is already in it. You may run `setup/install.sh` and
-`setup/verify.sh`.
+You may write to: `~/novasmart-lab/`, `~/Desktop/Session1`, `Session2`, `Session3`. On Track 3,
+also `~/Desktop/build-with-gemini`, and there only to create the clone, never to delete or
+rewrite what is already in it. You may run `setup/install.sh` and `setup/verify.sh`.
+
+**Do not edit the user's shell profile.** Neither script does: `install.sh` prints the
+`export NOVASMART_SCORECARD_HOME=...` line and leaves it to them, and the README promises the
+reader that nothing here touches `~/.zshrc` or `~/.bashrc`. Repeat the line verbatim in your
+hand-off instead.
 
 The scope on skills is this one. Setup is driven by this file alone. The lab skills this repository
 copies into `Desktop/Session*/.agents/skills/`, and the ones inside the Track 3 starter kit, are

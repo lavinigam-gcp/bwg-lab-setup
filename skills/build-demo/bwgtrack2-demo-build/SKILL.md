@@ -7,7 +7,13 @@ description: >-
   exists in the learner's demo folder, or when the leader asks you to build / make / put together their
   demo app after finishing a mission. ⛔ Do NOT load during ordinary mission work — readiness checks,
   discovering the estate, splitting a shared login, right-sizing access, screening content, evaluating,
-  or any verification or scorecard turn belong to `novasmart-governance-lab`. If there is no `BRIEF.md`,
+  or any verification or scorecard turn belong to `novasmart-governance-lab`.
+  ⛔ Never load while the laptop is being set up, installed, repaired, or checked for readiness.
+  "Set up my laptop", "am I ready", "am I ready for the lab", "check my setup" and "verify my
+  environment" all belong to `bwg-lab-setup`, even when they are asked with this folder open. The
+  toolchain, the Python environment, the session folders and verify.sh are not this skill's
+  business, and answering them here would ask for cloud credentials that are not issued until the
+  event. If there is no `BRIEF.md`,
   do not start: read `../build-demo/SKILL.md` and run the conversation first.
 ---
 

@@ -348,12 +348,19 @@ closes.
 
 ## Step 7 — Check it worked
 
-*Both tracks, with the track you set up.*
+*Both tracks, with the track you set up.* Run it from the setup folder, in a terminal:
 
 ```bash
+cd ~/novasmart-lab/setup
 bash setup/verify.sh --readiness              # Track 2
 bash setup/verify.sh --readiness --track 3    # Track 3
 ```
+
+Run this as a command, and run it before you open the lab folder. On Track 3 the starter kit
+ships its own `troubleshoot-lab-setup` skill, which answers "am I ready to start" and tells you
+to sign in to Google Cloud. That skill belongs to the lab rather than to setup, and before the
+event there is nothing to sign in with. Running the command yourself avoids that entirely. If
+you prefer to ask the assistant, ask it with the setup folder open, not the lab folder.
 
 Expect **11 of 11 checks OK** on Track 2, or **12 of 12** on Track 3, and a readiness summary.
 
@@ -428,5 +435,5 @@ system, is in **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)**. The ones that catch 
 | `uvloop` will not install on Windows | It has no Windows build. Use WSL2, on limited support |
 | Antigravity says "folder not found" on a WSL path | Known Windows failure. Map the WSL share to a drive letter, and expect to redo it after every restart. See [Windows with WSL2](#windows-with-wsl2) |
 | `agents-cli: command not found` | The virtual environment is not activated |
-| An exercise writes a file and it is nowhere | Skills still contain `/config` paths — Step 4 |
+| An exercise writes a file and it is nowhere | Skills still contain `/config` paths — Step 3 |
 | Everything installs but exercises find nothing | Expected until the Google Cloud project is provisioned |

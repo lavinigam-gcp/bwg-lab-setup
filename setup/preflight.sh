@@ -2,9 +2,12 @@
 # Can this laptop run the lab? Run this FIRST, before install.sh.
 # Produces a pre-setup report card and a GO / GO WITH CAVEATS / NO-GO verdict.
 # Every check is track-neutral: it tests the machine, never the lab content.
-# Exit: 0 GO · 1 GO WITH CAVEATS · 2 NO-GO · 3 could not assess
-# Read-only: installs nothing, changes nothing.
+# Exit: 0 GO · 1 GO WITH CAVEATS · 2 NO-GO · 64 bad flag
+# Installs nothing, changes no setting. Records its verdict for verify.sh to read.
 set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LAB_HOME="${LAB_HOME:-$HOME/novasmart-lab}"
 
 # --track changes nothing that is measured. It is recorded on the report card and in
 # the JSON so a saved verdict says which track it was collected for, which is what
@@ -15,9 +18,18 @@ while [ $# -gt 0 ]; do case "$1" in
   --json) JSON=1 ;;
   --track) TRACK="${2:?--track needs 2 or 3}"; shift ;;
   -h|--help) sed -n '2,6p' "$0"; echo "Usage: preflight.sh [--json] [--track {2,3}]"; exit 0 ;;
+  # Same reasoning as verify.sh: silent fallthrough turned `preflight.sh --jsno` into
+  # a human report card printed to a caller that had asked for JSON and would go on
+  # to misparse it. A mistyped flag is refused, not guessed at. This arm has to sit
+  # after -h|--help, or it shadows help and shellcheck flags the unreachable arm.
+  *) echo "unknown option: $1 (see --help)" >&2; exit 64 ;;
 esac; shift; done
 case "${TRACK:-}" in ""|2|3) ;; *) echo "unknown track: $TRACK (use 2 or 3)" >&2; exit 64 ;; esac
 TRACK_LABEL="${TRACK:-not given}"
+# One shared definition of "have the lab credentials been issued yet?", the same file
+# verify.sh sources, so the report card and the readiness report cannot drift apart.
+# shellcheck source=setup/lab-phase.sh
+. "$SCRIPT_DIR/lab-phase.sh"
 
 ROWS=(); FAIL=0; WARN=0; OK=0
 add() { # name  status(OK|WARN|FAIL)  found  requirement  advice
@@ -134,15 +146,30 @@ fi
 # GO unreachable for everyone. install.sh re-runs this script inside its own gate, so
 # that advice also reached the attendee mid-install, which is where it did the damage.
 # The row still earns its place on the day; it is only the pre-event status and advice
-# that change. PRE_EVENT is the same test verify.sh uses, so the two scripts agree:
-# no lab project set AND no application-default credentials on the machine.
+# that change. The phase comes from lab-phase.sh, the same file verify.sh sources, so
+# the two scripts cannot disagree about one laptop. It is keyed on the lab project and
+# nothing else: see that file for why a credentials file left over from the attendee's
+# own work is not evidence that the event has started.
+# PHASE is settled OUTSIDE the gcloud branch, exactly as verify.sh:249 settles it, and
+# with the same empty project id when gcloud is absent. It used to be assigned inside
+# the branch, so on a laptop with no gcloud at all BWG_PHASE=day-of moved verify.sh to
+# the day-of branch while preflight.sh went on reporting "phase":"pre-event". That is
+# the two scripts disagreeing about one laptop, which is the whole reason lab-phase.sh
+# exists, reintroduced one line above the shared helper. lab_phase returns $BWG_PHASE
+# first and validates it, so the override and the exit 64 on a bad value both work here
+# whether or not gcloud is installed.
+PROJ=""
+PHASE="$(lab_phase "$PROJ")"
+PRE_EVENT=0
+[ "$PHASE" = pre-event ] && PRE_EVENT=1
 if command -v gcloud >/dev/null 2>&1; then
-  ACCT="$(gcloud config get-value account 2>/dev/null)"
-  PROJ="$(gcloud config get-value project 2>/dev/null)"
+  ACCT="$(lab_account_id)"
+  PROJ="$(lab_project_id)"
+  PHASE="$(lab_phase "$PROJ")"
   PRE_EVENT=0
-  [ -z "$PROJ" ] && [ ! -f "$HOME/.config/gcloud/application_default_credentials.json" ] && PRE_EVENT=1
+  [ "$PHASE" = pre-event ] && PRE_EVENT=1
   case "${ACCT:-}" in
-    ""|"(unset)")
+    "")
       if [ "$PRE_EVENT" = 1 ]; then
         add "google account" OK "not signed in" "issued at the event" ""
       else
@@ -153,6 +180,10 @@ if command -v gcloud >/dev/null 2>&1; then
       add "google account" OK "$ACCT" "the lab account" "" ;;
     *)
       if [ "$PRE_EVENT" = 1 ]; then
+        # A personal or work account before the event is normal, so this is not a
+        # finding and it carries no advice. Nothing appears under WHAT TO DO, because
+        # there is nothing this attendee can do about it yet. The lab project is
+        # issued at the event and they switch to it then.
         add "google account" OK "$ACCT" "issued at the event" ""
       else
         add "google account" WARN "$ACCT" "the lab account" \
@@ -205,13 +236,61 @@ VERDICT="GO"; CODE=0
 [ "$WARN" -gt 0 ] && { VERDICT="GO WITH CAVEATS"; CODE=1; }
 [ "$FAIL" -gt 0 ] && { VERDICT="NO-GO";           CODE=2; }
 
+# Record the verdict where verify.sh can find it.
+#
+# The rule that a NO-GO laptop is shown no sign-in content lived only behind
+# `verify.sh --preflight-verdict no-go`. Nothing printed that flag: the README and the
+# landing page tell the attendee to run `verify.sh --readiness` bare, so the rule held
+# when the assistant drove the check and quietly did not hold when a human followed the
+# written instructions. That is backwards, because the human path is the fallback for
+# exactly the attendee whose machine is in trouble.
+#
+# So the word is written down here instead of being carried by hand. verify.sh reads
+# this file when no flag is given, and an explicit flag still wins. The timestamp and
+# the track are recorded too, so verify.sh can show where its verdict came from and a
+# stale one is visible rather than silent.
+#
+# Best effort, always. A machine where this cannot be written still gets its verdict
+# and its exit code: this file is a convenience for the next script, never a condition
+# of this one. Hence the `|| true` and the discarded errors.
+VERDICT_FILE="$LAB_HOME/preflight-verdict"
+save_verdict() {
+  local word
+  case "$CODE" in 0) word=go ;; 1) word=caveats ;; 2) word=no-go ;; *) return 0 ;; esac
+  mkdir -p "$LAB_HOME" 2>/dev/null || return 0
+  {
+    printf 'verdict=%s\n' "$word"
+    printf 'exit=%s\n'    "$CODE"
+    printf 'recorded=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    printf 'track=%s\n'   "$TRACK_LABEL"
+  } > "$VERDICT_FILE" 2>/dev/null || true
+  return 0
+}
+save_verdict
+
 if [ "$JSON" = 1 ]; then
-  printf '{"verdict":"%s","exit":%d,"track":"%s","ok":%d,"warn":%d,"fail":%d,"platform":"%s","arch":"%s","checks":[' \
-    "$VERDICT" "$CODE" "$TRACK_LABEL" "$OK" "$WARN" "$FAIL" "$PLAT" "$ARCH"
+  # Escape every field, the same two substitutions verify.sh:139 uses, in the same
+  # order: backslashes first, then double quotes, or the backslash pass would escape
+  # the backslashes the quote pass had just added. Several of these fields carry
+  # strings this repository does not control and cannot predict:
+  #   - "found" on the TLS row is an issuer name read out of curl -v output
+  #   - OSNAME comes from NAME= in /etc/os-release
+  #   - the account row carries whatever gcloud config get-value account returns
+  #   - the python, node and gcloud rows carry third-party version strings
+  # One double quote or one backslash in any of them used to produce invalid JSON.
+  # The consumers are CI's own json.loads and the setup skill, so the failure showed
+  # up as an unexplained CI break, or as a skill unable to read a report card from
+  # exactly the one unusual laptop that most needed reading. Every field goes through
+  # this, including the static-looking ones, so a future row cannot reopen the hole.
+  jesc() { local v="${1//\\/\\\\}"; printf '%s' "${v//\"/\\\"}"; }
+  printf '{"verdict":"%s","exit":%d,"track":"%s","phase":"%s","ok":%d,"warn":%d,"fail":%d,"platform":"%s","arch":"%s","checks":[' \
+    "$(jesc "$VERDICT")" "$CODE" "$(jesc "$TRACK_LABEL")" "$(jesc "$PHASE")" \
+    "$OK" "$WARN" "$FAIL" "$(jesc "$PLAT")" "$(jesc "$ARCH")"
   for i in "${!ROWS[@]}"; do
     IFS='|' read -r n s f r a <<< "${ROWS[$i]}"
     [ "$i" -gt 0 ] && printf ','
-    printf '{"check":"%s","status":"%s","found":"%s","needs":"%s","advice":"%s"}' "$n" "$s" "$f" "$r" "$a"
+    printf '{"check":"%s","status":"%s","found":"%s","needs":"%s","advice":"%s"}' \
+      "$(jesc "$n")" "$(jesc "$s")" "$(jesc "$f")" "$(jesc "$r")" "$(jesc "$a")"
   done
   printf ']}\n'
   exit "$CODE"
@@ -221,6 +300,14 @@ echo
 echo "  PRE-SETUP REPORT CARD"
 echo "  $OSNAME $OSVER · $ARCH · $(date +%Y-%m-%d)"
 echo "  track $TRACK_LABEL · every check below is the same for either track"
+# Say which phase this card was collected in. A support helper reading a pasted card
+# needs to know whether the lab project had been issued yet, because that is what
+# decides whether the account row means anything.
+if [ "$PHASE" = day-of ]; then
+  echo "  phase day-of · the lab project is set, so the event has started"
+else
+  echo "  phase pre-event · no lab project yet, which is expected before the event"
+fi
 printf '  '; printf '%.0s=' {1..72}; echo
 printf "  %-22s %-9s %-22s %s\n" CHECK STATUS FOUND NEEDS
 printf '  '; printf '%.0s-' {1..72}; echo

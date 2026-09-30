@@ -150,23 +150,45 @@ jobs:
           has() { grep -qF "$2" <<<"$1" || { echo "MISSING: $2"; echo "$1"; exit 1; }; }
           hasnt() { grep -qF "$2" <<<"$1" && { echo "SHOULD NOT APPEAR: $2"; echo "$1"; exit 1; }; return 0; }
 
-          # ---- pre-event: no project, no application-default credentials ----
-          rm -f "$ADC"; export STUB_PROJECT="" STUB_ACCOUNT=""
-          for v in go caveats unknown; do
-            out="$(rd $v || true)"
-            has "$out" "Next steps, on the day of the event"
-            has "$out" "Your gcloud authentication credentials are given to you at the event."
-            has "$out" "Do not run them now"
-            # The whole defect in one assertion. Before the event the sign-in must not be
-            # rendered as a thing to go and do, so it must not appear as a to-do bullet.
-            hasnt "$out" "    - gcloud auth login"
-            # And nothing in the actionable list may be a cloud task at all.
-            todo="$(sed -n '/Still to do:/,/^$/p' <<<"$out")"
-            case "$todo" in *gcloud*|*Qwiklabs*)
-              echo "the pre-event 'Still to do' list contains a cloud task:"; echo "$todo"; exit 1 ;;
+          # ---- pre-event, in all three of its shapes ----
+          # The phase is keyed on the lab project and nothing else. These three states
+          # are all before the event, and the middle two are what most of a room of
+          # professional developers actually looks like a week out: they have used
+          # Google Cloud before, so they have a project and a credentials file already.
+          # Keying the phase on that file put all of them on the day-of branch.
+          for state in "bare::" "personal-adc::lavinigam@example.com" "personal-project:my-own-project:lavinigam@example.com"; do
+            IFS=: read -r label proj acct <<<"$state"
+            rm -f "$ADC"
+            [ "$label" = bare ] || echo '{}' > "$ADC"
+            export STUB_PROJECT="$proj" STUB_ACCOUNT="$acct"
+            for v in go caveats unknown; do
+              out="$(rd $v || true)"
+              has "$out" "Next steps, on the day of the event"
+              has "$out" "Your gcloud authentication credentials are given to you at the event."
+              # The whole defect in one assertion. Before the event there is nothing to
+              # sign in with, so no sign-in command may appear at all. Not as a bullet,
+              # not indented under a "you will run these later" label: a command on the
+              # screen is read as a thing to type, and the label is not.
+              hasnt "$out" "gcloud auth login"
+              hasnt "$out" "application-default"
+              hasnt "$out" "gh auth login"
+              # And nothing in the actionable list may be a cloud task at all.
+              todo="$(sed -n '/Still to do:/,/^$/p' <<<"$out")"
+              case "$todo" in *gcloud*|*Qwiklabs*)
+                echo "the pre-event 'Still to do' list contains a cloud task:"; echo "$todo"; exit 1 ;;
+              esac
+            done
+            # The footer must stay true for a laptop that already has the attendee's own
+            # project and credentials on it. Telling them "project: none" when they have
+            # one is how the old wording lost their trust in the rest of the report.
+            out="$(rd unknown || true)"
+            case "$label" in
+              personal-project) has "$out" "my-own-project (your own, not a lab project" ;;
+              personal-adc)     has "$out" "adc        : present (your own, not a lab credential)" ;;
             esac
+            echo "pre-event ok: $label"
           done
-          echo "pre-event: sign-in is described, not demanded"
+          echo "pre-event: no sign-in command is printed in any of the three states"
 
           # ---- event day: a project has been issued, sign-in not finished ----
           # A project and no credentials is the real event-day state. Setting both would
@@ -176,17 +198,44 @@ jobs:
             out="$(rd $v || true)"
             has "$out" "Next steps, now that your lab credentials have been issued"
             has "$out" "gcloud auth login && gcloud auth application-default login"
-            has "$out" "Your gcloud authentication credentials are given to you at the event."
+            # This block used to repeat "your credentials are given to you at the
+            # event" three lines under a heading saying they had already been issued.
+            # The sentence is right in the pre-event and NO-GO blocks and wrong here,
+            # so here it names where to read the value instead of when it arrives.
+            has "$out" "PROJECT_ID is on the lab credentials card you were given."
+            hasnt "$out" "Your gcloud authentication credentials are given to you at the event."
             hasnt "$out" "Next steps, on the day of the event"
           done
-          echo "event day: the real commands are printed"
+          echo "event day: the real commands are printed, and nothing says the credentials are still coming"
 
-          # ---- fully signed in: nothing is outstanding, so nothing is printed ----
+          # ---- day of the event, fully signed in ----
+          # Nothing is outstanding, so no commands. It must still SAY so: the report
+          # used to stop dead after the table here, and an attendee who reads nothing
+          # after it cannot tell "all good" apart from "the script gave up".
+          #
+          # "You are ready." is a verdict on the WHOLE card and is gated on the whole
+          # card passing. This fixture's venv is a bare python symlink, so the software
+          # rows are failing, and the card here also says "software toolchain not ready"
+          # and "Still to do: fix the failing checks above". It used to print
+          # "You are ready." underneath all of that, because the line was derived from
+          # the sign-in alone. The narrow claim, about Google Cloud only, is still made.
           echo '{}' > "$ADC"
           out="$(rd go || true)"
+          has "$out" "Signed in to the lab project. Nothing left to do for Google Cloud."
+          has "$out" "Fix the failing checks above and run this again."
+          hasnt "$out" "You are ready."
           hasnt "$out" "Next steps"
           hasnt "$out" "gcloud auth login"
-          echo "signed in: no next-steps block at all"
+          echo "signed in with failing software rows: the narrow line is printed, the verdict is not"
+          # Positive control, by code reading rather than by fixture. The whole-card
+          # verdict must still be reachable: the fix gates the line, it does not
+          # delete it. A fixture that actually reaches it needs a real 3.14 venv with
+          # 120 pinned packages, node 24 and gcloud, which this job does not build,
+          # so that arm is exercised on a real machine and not here.
+          grep -qF 'echo "  Signed in to the lab project. You are ready."' setup/verify.sh \
+            || { echo "the positive verdict line was deleted rather than gated"; exit 1; }
+          grep -qF '[ "$sw" = ready ] && [ "$est" = installed ] && [ "$code" = 0 ]' setup/verify.sh \
+            || { echo "the positive verdict line is not gated on the card passing"; exit 1; }
 
           # ---- NO-GO: no sign-in content in either phase ----
           for phase in pre event; do
@@ -236,6 +285,389 @@ jobs:
           if env HOME=/tmp/h bash setup/verify.sh --preflight-verdict nogo --venv /tmp/fx >/dev/null 2>&1; then
             echo "verify.sh accepted a mistyped verdict"; exit 1; fi
           echo "--preflight-verdict is parsed and validated"
+
+      - name: the saved preflight verdict reaches verify.sh with no flag
+        run: |
+          # The NO-GO rule used to be reachable only by passing --preflight-verdict,
+          # and nothing printed that flag: the README and the landing page both say to
+          # run `verify.sh --readiness` bare. So the rule held when the assistant drove
+          # the check and silently did not hold for a human following the written
+          # instructions, which is the fallback for exactly the attendee whose machine
+          # is in trouble. preflight now writes the word down and verify.sh reads it.
+          has() { grep -qF "$2" <<<"$1" || { echo "MISSING: $2"; echo "$1"; exit 1; }; }
+          hasnt() { grep -qF "$2" <<<"$1" && { echo "SHOULD NOT APPEAR: $2"; echo "$1"; exit 1; }; return 0; }
+          mkdir -p /tmp/hv/novasmart-lab
+          V=/tmp/hv/novasmart-lab/preflight-verdict
+          rdv() { env HOME=/tmp/hv PATH=/tmp/shim:$PATH bash setup/verify.sh --readiness \
+                    --venv /tmp/fx --root /tmp/r2 "$@" 2>&1; }
+
+          # No file at all behaves as unknown, which is what it did before the file existed.
+          rm -f "$V"
+          out="$(rdv || true)"
+          has "$out" "unknown (preflight has not recorded a verdict yet)"
+          hasnt "$out" "use the provided lab VM instead"
+
+          # A saved NO-GO, and NO flag. This is the assertion that was missing.
+          printf 'verdict=no-go\nexit=2\nrecorded=2026-09-29T00:00:00Z\ntrack=2\n' > "$V"
+          out="$(rdv || true)"
+          has "$out" "use the provided lab VM instead"
+          has "$out" "ask for a loaner laptop at the event"
+          has "$out" "credentials are given to you at the event"
+          # Where the verdict came from, so a stale one is visible rather than silent.
+          has "$out" "no-go (recorded 2026-09-29T00:00:00Z for track 2)"
+          for s in "gcloud auth login" "application-default" "Qwiklabs" "Next steps"; do
+            hasnt "$out" "$s"
+          done
+
+          # An explicit flag still wins over the saved word.
+          out="$(rdv --preflight-verdict go || true)"
+          has "$out" "go (given with --preflight-verdict)"
+          hasnt "$out" "use the provided lab VM instead"
+
+          # A damaged file is nobody telling us, which is unknown, not a crash.
+          printf 'verdict=garbage\n' > "$V"
+          out="$(rdv || true)"
+          has "$out" "could not be read, so treating it as unknown"
+
+          # And preflight really does write it, with the track it was given.
+          rm -f "$V"
+          env HOME=/tmp/hv bash setup/preflight.sh --track 3 >/dev/null 2>&1 || [ $? -le 2 ]
+          test -f "$V" || { echo "preflight did not record its verdict"; exit 1; }
+          grep -qE '^verdict=(go|caveats|no-go)$' "$V" || { echo "bad verdict record:"; cat "$V"; exit 1; }
+          grep -qx 'track=3' "$V" || { echo "the track was not recorded:"; cat "$V"; exit 1; }
+          echo "the saved verdict is written, read, overridable and fail-safe"
+
+      - name: the phase override is honoured and validated
+        run: |
+          # BWG_PHASE exists for the cases a project-id prefix cannot see: a rehearsal
+          # on a project that is not a Qwiklabs one, or a support helper who needs to
+          # read the other phase's wording. A wrong value is refused, not guessed at.
+          has() { grep -qF "$2" <<<"$1" || { echo "MISSING: $2"; echo "$1"; exit 1; }; }
+          hasnt() { grep -qF "$2" <<<"$1" && { echo "SHOULD NOT APPEAR: $2"; echo "$1"; exit 1; }; return 0; }
+          ov() { env HOME=/tmp/h PATH=/tmp/shim:$PATH BWG_PHASE="$1" \
+                   bash setup/verify.sh --readiness --venv /tmp/fx --root /tmp/r2 2>&1; }
+          rm -f /tmp/h/.config/gcloud/application_default_credentials.json
+          export STUB_PROJECT="qwiklabs-gcp-01-abc123" STUB_ACCOUNT="student-01@qwiklabs.net"
+          out="$(ov pre-event || true)"
+          has "$out" "Next steps, on the day of the event"
+          hasnt "$out" "gcloud auth login"
+          export STUB_PROJECT="" STUB_ACCOUNT=""
+          out="$(ov day-of || true)"
+          has "$out" "Next steps, now that your lab credentials have been issued"
+          for s in verify preflight; do
+            c=0
+            env HOME=/tmp/h PATH=/tmp/shim:$PATH BWG_PHASE=sometime \
+              bash "setup/$s.sh" >/dev/null 2>&1 || c=$?
+            [ "$c" = 64 ] || { echo "$s.sh took a bad BWG_PHASE (exit $c, wanted 64)"; exit 1; }
+          done
+          echo "the phase override works both ways and a bad value exits 64"
+
+      - name: preflight refuses an unknown flag instead of ignoring it
+        run: |
+          # verify.sh grew this arm and preflight.sh did not, so `preflight.sh --jsno`
+          # exited 0 and printed a human report card to a caller that had asked for
+          # JSON and would go on to misparse it.
+          if bash setup/preflight.sh --jsno >/dev/null 2>&1; then
+            echo "preflight.sh silently accepted an unknown flag"; exit 1; fi
+          c=0; bash setup/preflight.sh --jsno >/dev/null 2>&1 || c=$?
+          [ "$c" = 64 ] || { echo "preflight.sh exited $c on a bad flag, wanted 64"; exit 1; }
+          bash setup/preflight.sh --jsno 2>&1 | grep -q "unknown option" \
+            || { echo "preflight.sh rejected the flag without saying why"; exit 1; }
+          bash setup/preflight.sh --help >/dev/null || { echo "--help broke"; exit 1; }
+          echo "preflight refuses unknown flags with 64, and --help still works"
+
+      - name: BWG_PHASE is honoured with no gcloud on the machine
+        run: |
+          # preflight set PHASE=pre-event and only reassigned it from lab_phase inside
+          # `if command -v gcloud`, while verify.sh called lab_phase unconditionally.
+          # So on a laptop with no gcloud at all, BWG_PHASE=day-of moved verify.sh to
+          # the day-of branch and left preflight reporting "phase":"pre-event". Two
+          # scripts disagreeing about one laptop is the exact failure lab-phase.sh was
+          # written to make impossible.
+          # A PATH with every ordinary tool on it and no gcloud. Prepending an empty
+          # directory is NOT enough: `command -v gcloud` walks past it to whatever
+          # the image already has, and some images do ship the Cloud SDK. Build the
+          # PATH out of symlinks and then assert it really is gcloud-free, so this
+          # test cannot quietly stop testing anything.
+          nogc=/tmp/nogcloud; rm -rf "$nogc"; mkdir -p "$nogc"
+          for d in /usr/bin /bin /usr/local/bin /usr/sbin; do
+            [ -d "$d" ] || continue
+            for f in "$d"/*; do
+              b="${f##*/}"
+              case "$b" in gcloud|gsutil|bq) continue ;; esac
+              [ -e "$nogc/$b" ] || ln -s "$f" "$nogc/$b" 2>/dev/null || true
+            done
+          done
+          PATH="$nogc" command -v gcloud >/dev/null 2>&1 \
+            && { echo "fixture broken: gcloud is still reachable"; exit 1; }
+          for p in day-of pre-event; do
+            got="$(PATH="$nogc" BWG_PHASE="$p" bash setup/preflight.sh --json 2>/dev/null \
+                   | python3 -c 'import json,sys; print(json.load(sys.stdin)["phase"])')"
+            [ "$got" = "$p" ] \
+              || { echo "no gcloud, BWG_PHASE=$p: preflight reported $got"; exit 1; }
+            # verify.sh must agree. It reports the phase through its wording, so key
+            # on the block each phase prints.
+            out="$(PATH="$nogc" BWG_PHASE="$p" HOME=/tmp/h \
+                   bash setup/verify.sh --readiness --venv /tmp/fx --root /tmp/r2 2>&1 || true)"
+            if [ "$p" = day-of ]; then
+              grep -qF "Next steps, now that your lab credentials have been issued" <<<"$out" \
+                || { echo "no gcloud, BWG_PHASE=day-of: verify.sh did not take the day-of branch"; exit 1; }
+            else
+              grep -qF "Next steps, on the day of the event" <<<"$out" \
+                || { echo "no gcloud, BWG_PHASE=pre-event: verify.sh did not take the pre-event branch"; exit 1; }
+            fi
+          done
+          # A bad value is still refused, and still from the shared helper, with or
+          # without gcloud present.
+          c=0
+          PATH="$nogc" BWG_PHASE=tomorrow bash setup/preflight.sh --json >/dev/null 2>&1 || c=$?
+          [ "$c" = 64 ] || { echo "bad BWG_PHASE with no gcloud exited $c, wanted 64"; exit 1; }
+          rm -rf "$nogc"
+          echo "preflight and verify agree on the phase with no gcloud installed"
+
+      - name: preflight --json survives a quote and a backslash in a field
+        run: |
+          # preflight emitted every field with a bare printf '%s' and no escaping,
+          # while verify.sh escaped its one path field and explained why. Three of
+          # preflight's fields carry strings this repo does not control: the TLS
+          # issuer read out of curl -v, NAME= from /etc/os-release, and the gcloud
+          # account. One double quote or one backslash in any of them produced
+          # output that json.loads rejects, which is a confusing CI break and a
+          # skill that cannot read a report card from the one corporate-proxied
+          # laptop that most needs reading. Latent, not live, so it needs a fixture.
+          #
+          # The account is the field a test can control, through a stub gcloud that
+          # is first on PATH. Installs nothing and touches no real configuration.
+          rm -rf /tmp/jbin; mkdir -p /tmp/jbin
+          cat > /tmp/jbin/gcloud <<'STUB'
+          #!/usr/bin/env bash
+          case "$*" in
+            "config get-value account") printf '%s\n' 'stu"dent\01@ex ample.net' ;;
+            "config get-value project") printf '%s\n' 'qwiklabs-gcp-01-a70b04a29bf7' ;;
+            *) exit 1 ;;
+          esac
+          STUB
+          chmod +x /tmp/jbin/gcloud
+          out="$(PATH=/tmp/jbin:$PATH bash setup/preflight.sh --json 2>/dev/null || true)"
+          # The raw bytes must carry the escapes, ...
+          printf '%s' "$out" | grep -qF 'stu\"dent\\01@ex ample.net' \
+            || { echo "the account field was not escaped"; printf '%s\n' "$out"; exit 1; }
+          # ... the document must parse, ...
+          printf '%s' "$out" | python3 -m json.tool > /dev/null \
+            || { echo "preflight --json is not valid JSON"; printf '%s\n' "$out"; exit 1; }
+          # ... and the value must survive the round trip unchanged.
+          printf '%s' "$out" | python3 -c '
+          import json, sys
+          d = json.load(sys.stdin)
+          got = [c["found"] for c in d["checks"] if c["check"] == "google account"]
+          want = "stu\"dent\\01@ex ample.net"
+          assert got == [want], (got, want)
+          print("round trip clean:", got[0])
+          '
+          rm -rf /tmp/jbin
+          echo "preflight --json escapes untrusted fields"
+
+      - name: a real install with no terminal stops and says so
+        run: |
+          # ------------------------------------------------------------------
+          # THIS STEP STARTS A NON-DRY INSTALL. Do not replay it on a laptop.
+          # It is the only step in this file that runs install.sh without
+          # --dry-run, so if the consent stop ever regresses this is the one
+          # test whose failure mode is "it installed a toolchain" rather than
+          # "it printed the wrong thing". Someone copying this block into a
+          # terminal to debug CI is exactly how a real machine got changed
+          # once already. It refuses to run anywhere except a CI runner.
+          # To check the same behaviour on a workstation, read the [ ! -t 0 ]
+          # arms of gate() and wsl_gate() in setup/install.sh, and run
+          # install.sh --dry-run, which never reaches either of them.
+          # ------------------------------------------------------------------
+          if [ "${GITHUB_ACTIONS:-}" != "true" ] && [ "${CI:-}" != "true" ]; then
+            echo "REFUSING TO RUN. This step starts a real, non-dry install.sh."
+            echo "It runs only on a CI runner, where the machine is disposable."
+            echo "Neither GITHUB_ACTIONS nor CI is set to true here, so this looks"
+            echo "like a laptop. Nothing was run and nothing was changed."
+            echo "Use: bash setup/install.sh --dry-run"
+            exit 1
+          fi
+          # No TTY and no --yes used to fall into the consent `read`, hit end of file,
+          # trip the ERR trap and exit with nothing on screen. Someone running
+          # `curl ... | bash` saw a bare failure and no reason for it.
+          # Run it against a scratch HOME, never the real one. A scratch HOME bounds
+          # a regression to a directory we can throw away.
+          rm -rf /tmp/nottyhome /tmp/notty
+          mkdir -p /tmp/nottyhome
+          c=0
+          env HOME=/tmp/nottyhome LAB_HOME=/tmp/nottyhome/novasmart-lab \
+            bash setup/install.sh --skip-preflight --root /tmp/notty \
+            > /tmp/notty.out 2>&1 < /dev/null || c=$?
+          [ "$c" = 66 ] || { echo "no-TTY install exited $c, wanted 66"; cat /tmp/notty.out; exit 1; }
+          grep -q "Stopped. Nothing was changed." /tmp/notty.out \
+            || { echo "it stopped without saying so"; cat /tmp/notty.out; exit 1; }
+          # It must stop BEFORE doing any work.
+          test ! -d /tmp/notty || { echo "it changed something before stopping"; exit 1; }
+          test ! -d /tmp/nottyhome/novasmart-lab/.venv || { echo "it built a venv before stopping"; exit 1; }
+          echo "no-TTY install stops with exit 66 and changes nothing"
+
+          # --skip-preflight must skip PREFLIGHT, not consent. It used to return out of
+          # the whole gate, so this exact command installed without asking anyone.
+          grep -q "preflight skipped" /tmp/notty.out \
+            || { echo "--skip-preflight did not take effect"; cat /tmp/notty.out; exit 1; }
+          grep -q "is about to set up Track" /tmp/notty.out \
+            || { echo "--skip-preflight also skipped the consent screen"; cat /tmp/notty.out; exit 1; }
+          echo "--skip-preflight skips preflight and still asks for consent"
+
+          # --only must not skip consent either. It used to: main() called
+          # `[ -z "$ONLY" ] && gate`, so `install.sh --only python` created
+          # $LAB_HOME, built a venv and installed 120 packages without ever
+          # disclosing it or asking. --only is the command every --fix-hints row
+          # and every row of the skill's repair table tells people to run, so it
+          # was the least-guarded path and the most-used one. Same assertion as
+          # above, one step at a time, for every step in the registry.
+          for s in tools python skills sessions register starterkit; do
+            rm -rf /tmp/nottyhome /tmp/notty
+            mkdir -p /tmp/nottyhome
+            c=0
+            env HOME=/tmp/nottyhome LAB_HOME=/tmp/nottyhome/novasmart-lab \
+              bash setup/install.sh --only "$s" --root /tmp/notty \
+              > /tmp/notty-only.out 2>&1 < /dev/null || c=$?
+            [ "$c" = 66 ] \
+              || { echo "--only $s exited $c with no terminal, wanted 66"; cat /tmp/notty-only.out; exit 1; }
+            grep -q "Stopped. Nothing was changed." /tmp/notty-only.out \
+              || { echo "--only $s stopped without saying so"; cat /tmp/notty-only.out; exit 1; }
+            grep -q "is about to run one step on this machine: $s" /tmp/notty-only.out \
+              || { echo "--only $s did not disclose what it would change"; cat /tmp/notty-only.out; exit 1; }
+            grep -q "is about to set up Track" /tmp/notty-only.out \
+              && { echo "--only $s disclosed the whole track, not the one step"; cat /tmp/notty-only.out; exit 1; }
+            test ! -d /tmp/notty \
+              || { echo "--only $s changed something before stopping"; exit 1; }
+            test ! -d /tmp/nottyhome/novasmart-lab/.venv \
+              || { echo "--only $s built a venv before stopping"; exit 1; }
+          done
+          echo "--only stops with exit 66 for every step and changes nothing"
+
+          # The combinations. None of these is a way round the consent gate:
+          # --yes is the ONLY thing that answers it, and it answers it rather
+          # than skipping it, because the disclosure is printed either way.
+          for args in "--only python --skip-preflight" "--skip-preflight --only tools" \
+                      "--only python --force" "--only starterkit" "--track 3 --only tools"; do
+            rm -rf /tmp/nottyhome /tmp/notty
+            mkdir -p /tmp/nottyhome
+            c=0
+            # shellcheck disable=SC2086
+            env HOME=/tmp/nottyhome LAB_HOME=/tmp/nottyhome/novasmart-lab BWG_TRACK=3 \
+              bash setup/install.sh $args --root /tmp/notty \
+              > /tmp/notty-combo.out 2>&1 < /dev/null || c=$?
+            [ "$c" = 66 ] \
+              || { echo "install.sh $args exited $c with no terminal, wanted 66"; cat /tmp/notty-combo.out; exit 1; }
+            grep -q "Stopped. Nothing was changed." /tmp/notty-combo.out \
+              || { echo "install.sh $args stopped without saying so"; cat /tmp/notty-combo.out; exit 1; }
+            test ! -d /tmp/notty || { echo "install.sh $args changed something"; exit 1; }
+          done
+          echo "--only, --skip-preflight, --track and BWG_TRACK cannot skip consent"
+
+          # A bad --only value is still refused with 64 before any consent screen,
+          # so the gate did not turn a typo into a question.
+          rm -rf /tmp/nottyhome; mkdir -p /tmp/nottyhome
+          c=0
+          env HOME=/tmp/nottyhome LAB_HOME=/tmp/nottyhome/novasmart-lab \
+            bash setup/install.sh --only nosuchstep --root /tmp/notty \
+            > /tmp/notty-bad.out 2>&1 < /dev/null || c=$?
+          [ "$c" = 64 ] || { echo "--only nosuchstep exited $c, wanted 64"; cat /tmp/notty-bad.out; exit 1; }
+          grep -q "is about to" /tmp/notty-bad.out \
+            && { echo "it asked for consent to run a step that does not exist"; exit 1; }
+          echo "a bad --only step is still 64, with no consent screen"
+          rm -rf /tmp/nottyhome /tmp/notty
+
+      - name: the WSL2 notice is a gate and not a warning
+        run: |
+          # ------------------------------------------------------------------
+          # THIS STEP STARTS NON-DRY INSTALLS. Do not replay it on a laptop.
+          # Same reasoning and the same refusal as the step above. Every run
+          # below either stops at a gate or runs only `--only skills` with no
+          # skills source, which is a no-op branch that writes nothing.
+          # ------------------------------------------------------------------
+          if [ "${GITHUB_ACTIONS:-}" != "true" ] && [ "${CI:-}" != "true" ]; then
+            echo "REFUSING TO RUN. This step starts real, non-dry install.sh runs."
+            echo "It runs only on a CI runner, where the machine is disposable."
+            echo "Nothing was run and nothing was changed."
+            exit 1
+          fi
+          # A GitHub runner is not WSL2 and /proc/version cannot be faked on it, so
+          # the platform branch is patched in a COPY and the copy is what runs. That
+          # is the only edit: wsl_gate itself, the consent gate and main() are the
+          # real code. The copy lives outside the repo, so $LAB_SKILLS_SRC resolves
+          # empty and `--only skills` is a branch that returns 0 having written
+          # nothing, which is what makes the "it continued" cases safe to assert on.
+          rm -rf /tmp/wslfx /tmp/wh; mkdir -p /tmp/wslfx
+          sed 's#grep -qi microsoft /proc/version 2>/dev/null && OS=wsl2#OS=wsl2#' \
+            setup/install.sh > /tmp/wslfx/install.sh
+          grep -q '^          OS=wsl2 ;;$' /tmp/wslfx/install.sh \
+            || { echo "the WSL2 fixture did not patch the platform branch"; exit 1; }
+          bash -n /tmp/wslfx/install.sh || { echo "the WSL2 fixture does not parse"; exit 1; }
+          wsl() { # answer-or-empty  extra-args...
+            local ans="$1"; shift
+            rm -rf /tmp/wh; mkdir -p /tmp/wh
+            WSLC=0
+            if [ -z "$ans" ]; then
+              env HOME=/tmp/wh LAB_HOME=/tmp/wh/novasmart-lab \
+                bash /tmp/wslfx/install.sh --track 2 --only skills --root /tmp/wh/root \
+                "$@" > /tmp/wsl.out 2>&1 < /dev/null || WSLC=$?
+            else
+              # `script` gives the child a real pty, so [ -t 0 ] is true, and feeds
+              # it the answer. This is the only way to exercise the prompt in CI.
+              printf '%s\n' "$ans" | script -qec \
+                "env HOME=/tmp/wh LAB_HOME=/tmp/wh/novasmart-lab bash /tmp/wslfx/install.sh --track 2 --only skills --root /tmp/wh/root $*" \
+                /dev/null > /tmp/wsl.raw 2>&1 || WSLC=$?
+              tr -d '\r' < /tmp/wsl.raw > /tmp/wsl.out
+            fi
+          }
+          w_has()  { grep -qF "$1" /tmp/wsl.out || { echo "MISSING: $1"; cat /tmp/wsl.out; exit 1; }; }
+          w_hasnt(){ grep -qF "$1" /tmp/wsl.out && { echo "SHOULD NOT APPEAR: $1"; cat /tmp/wsl.out; exit 1; }; return 0; }
+
+          # 1. No terminal and no --yes: STOP. This used to warn and carry straight
+          #    on, which made the limited-support notice advisory. On an --only run,
+          #    where the consent gate was never reached either, that meant a real
+          #    repair on an unsupported platform with nothing having asked anything.
+          wsl ""
+          [ "$WSLC" = 66 ] || { echo "WSL2 no-TTY exited $WSLC, wanted 66"; cat /tmp/wsl.out; exit 1; }
+          w_has "Stopped. Nothing was changed."
+          w_has "no terminal here to ask you for consent on"
+          test ! -d /tmp/wh/novasmart-lab || { echo "it changed something before stopping"; exit 1; }
+
+          # 2. No terminal, --yes: continue, with the warning on the record.
+          wsl "" --yes
+          [ "$WSLC" = 0 ] || { echo "WSL2 no-TTY --yes exited $WSLC, wanted 0"; cat /tmp/wsl.out; exit 1; }
+          w_has "--yes given, continuing"
+          w_hasnt "Stopped. Nothing was changed."
+
+          # 3. A terminal, and --yes: the disclosure is STILL shown and STILL asked.
+          #    --yes means "I accept the changes you listed", which is not the same
+          #    statement as "I accept that this platform is only partly supported".
+          wsl n --yes
+          w_has "Windows with WSL2 is limited support"
+          w_has "Continue on WSL2 anyway?"
+          w_has "Stopped. Nothing was changed."
+          w_hasnt "is about to run one step"
+          test ! -d /tmp/wh/novasmart-lab || { echo "it changed something after n"; exit 1; }
+
+          # 4. A terminal, --yes, answered y: through the WSL2 gate, and the consent
+          #    gate below it still discloses before --yes answers it.
+          wsl y --yes
+          [ "$WSLC" = 0 ] || { echo "WSL2 TTY y exited $WSLC, wanted 0"; cat /tmp/wsl.out; exit 1; }
+          w_has "Continue on WSL2 anyway?"
+          w_has "is about to run one step on this machine: skills"
+          w_has "--yes given, proceeding without asking"
+
+          # 5. A dry run never blocks, on WSL2 or anywhere else.
+          rm -rf /tmp/wh; mkdir -p /tmp/wh
+          c=0
+          env HOME=/tmp/wh bash /tmp/wslfx/install.sh --track 2 --dry-run \
+            > /tmp/wsl.out 2>&1 < /dev/null || c=$?
+          [ "$c" = 0 ] || { echo "WSL2 dry run exited $c, wanted 0"; cat /tmp/wsl.out; exit 1; }
+          w_has "DRY RUN - nothing will be changed"
+          w_hasnt "Stopped. Nothing was changed."
+          echo "WSL2: no-TTY stops with 66, --yes continues, a terminal is always asked, dry runs never block"
+          rm -rf /tmp/wslfx /tmp/wh
 
       - name: preflight does not demand a lab account before the event
         run: |
@@ -429,6 +861,47 @@ jobs:
               echo "stale reference to '$term'"; exit 1; fi
           done
 
+      - name: every exit code a script can return is in the troubleshooting table
+        run: |
+          # Exit 66 shipped undocumented: the behaviour was correct, CI asserted it,
+          # and no README, skill or table mentioned the number anywhere. An attendee
+          # or an assistant reading 66 had nothing to look it up in. This closes that
+          # by construction rather than by remembering: add an `exit N` to any setup
+          # script and this step fails until the table has a column for N.
+          #
+          # Literals only. preflight.sh and verify.sh also `exit "$CODE"` from a
+          # variable, and those codes are the ones the header comments enumerate;
+          # chasing variables is not worth a false failure. setup/lab-phase.sh is
+          # sourced and never run on its own, so its exit 64 is returned by whichever
+          # script sourced it, and both of those have a 64 column already.
+          hdr="$(grep -n '^| Script |' TROUBLESHOOTING.md | head -1)"
+          [ -n "$hdr" ] || { echo "the exit-code table has gone from TROUBLESHOOTING.md"; exit 1; }
+          echo "table header: $hdr"
+          bad=0
+          for f in setup/*.sh; do
+            for n in $(grep -oE '\bexit [0-9]+' "$f" | awk '{print $2}' | sort -un); do
+              echo "$hdr" | grep -qE "\| $n \|" \
+                || { echo "$f can exit $n and the table has no column for it"; bad=1; }
+            done
+          done
+          # And one row per script a person actually runs.
+          for s in install.sh preflight.sh verify.sh; do
+            grep -q "^| \`$s\` |" TROUBLESHOOTING.md \
+              || { echo "no exit-code row for $s"; bad=1; }
+          done
+          # The header comment in each runnable script must enumerate them too, which
+          # is the copy a reader hits first. install.sh had no such line at all.
+          for s in install.sh preflight.sh verify.sh; do
+            grep -q '^# Exit:' "setup/$s" \
+              || { echo "setup/$s has no '# Exit:' header line"; bad=1; }
+          done
+          # 66 specifically, since it is the newest and the one that shipped silent.
+          for f in TROUBLESHOOTING.md README.md .agents/skills/bwg-lab-setup/SKILL.md; do
+            grep -q '66' "$f" || { echo "$f does not mention exit 66"; bad=1; }
+          done
+          [ "$bad" = 0 ] || exit 1
+          echo "every exit literal in setup/*.sh is documented"
+
       - name: markdown links resolve
         run: |
           python3 - <<'PY'
@@ -534,8 +1007,19 @@ jobs:
           # date -Is is GNU only. On BSD date every logged line got an empty timestamp
           # and a "date: illegal option -- I" on stderr, on the one platform that was
           # already failing hardest.
-          if grep -q 'date -Is' setup/install.sh; then
+          # Strip comments before grepping. The comment in install.sh's run() explains
+          # why `date -Is` was removed and therefore contains the string, so this
+          # assertion used to fail on its own documentation. That is the whole reason
+          # this job has never once passed, and why the brew branch it exists to cover
+          # has been effectively unguarded since it was added.
+          code() { sed 's/[[:space:]]*#.*$//' "$1"; }
+          if code setup/install.sh | grep -q 'date -Is'; then
             echo "date -Is is back, and BSD date has no -I"; exit 1; fi
+          # Positive control. Stripping comments must not have turned this into a
+          # check that can never fire, so prove it still catches the real thing.
+          printf 'x=$(date -Is)\n' > "$RUNNER_TEMP/positive-control.sh"
+          if ! code "$RUNNER_TEMP/positive-control.sh" | grep -q 'date -Is'; then
+            echo "the comment-stripping assertion can no longer detect date -Is"; exit 1; fi
           date -u +%Y-%m-%dT%H:%M:%SZ >/dev/null \
             || { echo "the replacement timestamp does not work on BSD date"; exit 1; }
           echo "timestamp format is portable: $(date -u +%Y-%m-%dT%H:%M:%SZ)"

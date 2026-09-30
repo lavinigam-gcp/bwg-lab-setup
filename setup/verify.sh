@@ -2,7 +2,7 @@
 # Build with Gemini lab — environment parity check, Track 2 and Track 3.
 # The toolchain checks run for both tracks. The rest depend on --track.
 # Reference: the lab image of 2026-08-05.
-# Exit: 0 all pass · 1 drift · 2 something missing · 3 cannot run (no venv)
+# Exit: 0 all pass · 1 drift · 2 something missing · 3 cannot run (no venv) · 64 bad flag
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -23,12 +23,16 @@ JSON=0; HINTS=0; READINESS=0; TRACK="${BWG_TRACK:-2}"
 # and it changes no exit code. Default "unknown" means nobody told us, so the event-side
 # logic decides on its own, exactly as it did before this flag existed.
 PF_VERDICT=unknown
+# Set when the operator named a verdict on the command line. An explicit word always
+# beats the one preflight.sh saved, the same way an explicit --venv beats an activated
+# virtualenv: reporting on something the operator did not ask for is the bug.
+PF_EXPLICIT=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --json) JSON=1 ;;
     --fix-hints) HINTS=1 ;;
     --readiness) READINESS=1; HINTS=1 ;;
-    --preflight-verdict) PF_VERDICT="${2:?--preflight-verdict needs go, caveats, no-go or unknown}"; shift ;;
+    --preflight-verdict) PF_VERDICT="${2:?--preflight-verdict needs go, caveats, no-go or unknown}"; PF_EXPLICIT=1; shift ;;
     --track) TRACK="${2:?--track needs 2 or 3}"; shift ;;
     --root) LAB_ROOT="${2:?--root needs a directory}"; shift ;;
     --lab-home) LAB_HOME="${2:?--lab-home needs a directory}"; shift ;;
@@ -60,6 +64,41 @@ case "$PF_VERDICT" in
   go|caveats|no-go|unknown) ;;
   *) echo "unknown preflight verdict: $PF_VERDICT (use go, caveats, no-go or unknown)" >&2; exit 64 ;;
 esac
+# Whether the lab credentials have been issued is decided in one place, shared with
+# preflight.sh, so the report card and the readiness report cannot disagree about the
+# same laptop. It also validates BWG_PHASE, which is why it is sourced with the other
+# argument checks rather than at the top of the file.
+# shellcheck source=setup/lab-phase.sh
+. "$SCRIPT_DIR/lab-phase.sh"
+
+# Where the verdict came from, shown in the readiness report so a stale one is visible.
+PF_SOURCE="preflight has not recorded a verdict yet"
+[ "$PF_EXPLICIT" = 1 ] && PF_SOURCE="given with --preflight-verdict"
+# Read the verdict preflight.sh saved, unless the operator named one.
+#
+# The NO-GO rule used to be reachable only by passing the flag, and nothing printed the
+# flag: the README and the landing page both say to run `verify.sh --readiness` bare.
+# So the rule held for the assistant and silently did not hold for a human following
+# the written instructions. Reading the file closes that gap without asking anybody to
+# remember a word. A missing or damaged file means nobody told us, which is `unknown`,
+# which is exactly what this script did before the file existed.
+if [ "$PF_EXPLICIT" = 0 ] && [ -f "$LAB_HOME/preflight-verdict" ]; then
+  pf_w=""; pf_when=""; pf_track=""
+  while IFS='=' read -r pf_k pf_v; do
+    case "$pf_k" in
+      verdict)  pf_w="$pf_v" ;;
+      recorded) pf_when="$pf_v" ;;
+      track)    pf_track="$pf_v" ;;
+    esac
+  done < "$LAB_HOME/preflight-verdict"
+  case "$pf_w" in
+    go|caveats|no-go)
+      PF_VERDICT="$pf_w"
+      PF_SOURCE="recorded ${pf_when:-at an unknown time} for track ${pf_track:-not given}"
+      ;;
+    *) PF_SOURCE="the saved verdict could not be read, so treating it as unknown" ;;
+  esac
+fi
 
 SESSION="$LAB_ROOT/Desktop/Session1"
 [ -n "$KIT_DIR" ] || KIT_DIR="$LAB_ROOT/Desktop/build-with-gemini"
@@ -83,7 +122,9 @@ chk() { # name  match  found  mode(exact|prefix|any)  display  hint
   elif [ "$e" = "$f" ];   then s=OK
   fi
   case $s in OK) pass=$((pass+1));; DRIFT) drift=$((drift+1));; MISSING) missing=$((missing+1));; esac
-  ROWS+=("$n|$d|${f:-—}|$s|$hint")
+  # A plain "-", not an em dash. printf "%-22s" pads by bytes, an em dash is three of
+  # them in UTF-8, and every MISSING row therefore came out two columns short.
+  ROWS+=("$n|$d|${f:--}|$s|$hint")
 }
 ver() { "$PY" -c "import importlib.metadata as m;print(m.version('$1'))" 2>/dev/null; }
 # Prints nothing when the count is zero, so chk's "any" mode reports MISSING rather
@@ -91,8 +132,16 @@ ver() { "$PY" -c "import importlib.metadata as m;print(m.version('$1'))" 2>/dev/
 kitskills() { find "$KIT_DIR/.agents/skills" -maxdepth 2 -name SKILL.md 2>/dev/null | wc -l | tr -d ' ' | grep -v '^0$'; }
 
 if [ ! -x "$VENV/bin/python" ]; then
-  [ "$JSON" = 1 ] && echo '{"status":"cannot-run","reason":"no venv at '"$VENV"'"}' \
-                  || echo "cannot run: no virtual environment at $VENV — see install.sh --only python, or pass --venv DIR"
+  if [ "$JSON" = 1 ]; then
+    # Escape before interpolating. This is the only JSON field in these three scripts
+    # that carries a filesystem path straight from --venv, $LAB_VENV or $LAB_HOME, and
+    # a quote or a backslash anywhere in it produced output the skill could not parse.
+    # Every other field is a static string or a tool version number.
+    esc="${VENV//\\/\\\\}"; esc="${esc//\"/\\\"}"
+    printf '{"status":"cannot-run","reason":"no venv at %s"}\n' "$esc"
+  else
+    echo "cannot run: no virtual environment at $VENV — see install.sh --only python, or pass --venv DIR"
+  fi
   exit 3
 fi
 
@@ -191,20 +240,30 @@ else
   # readiness rows ended up disagreeing: the footer had no pre-event wording at all,
   # so a laptop the readiness report called "expected before the event" was still
   # scolded three lines higher for not being on the lab account.
-  ACCT="$(gcloud config get-value account 2>/dev/null)"
-  PROJ="$(gcloud config get-value project 2>/dev/null)"
+  ACCT="$(lab_account_id)"
+  PROJ="$(lab_project_id)"
   ADC=0
   [ -f "$HOME/.config/gcloud/application_default_credentials.json" ] && ADC=1
-  # PRE_EVENT needs both halves, not just the project. Keyed on the project alone it
-  # told someone who had already run `gcloud auth application-default login` that they
-  # were "not signed in and no lab project is set", and half of that was false. A
-  # machine with credentials on it is past the pre-event state whatever the project
-  # says, so the honest test is: no lab project AND no application-default credentials.
-  PRE_EVENT=0; [ -z "$PROJ" ] && [ "$ADC" = 0 ] && PRE_EVENT=1
+  # The phase comes from lab-phase.sh, which keys it on the lab project and nothing
+  # else. See that file for why the credentials file is not part of the test.
+  PRE_EVENT=0; [ "$(lab_phase "$PROJ")" = pre-event ] && PRE_EVENT=1
   if [ "$PRE_EVENT" = 1 ]; then
+    # Before the event this footer has to stay true for a laptop that is already set
+    # up for the attendee's own work. Saying "project: none" to someone who has one,
+    # or "adc: MISSING" to someone who has credentials, is how the old wording lost
+    # people's trust in the rest of the report. State what is there, and say plainly
+    # that it is not the lab's.
     echo "  gcp account: ${ACCT:-none} (the lab account is issued to you at the event)"
-    echo "  gcp project: none (issued to you at the event)"
-    echo "  adc        : MISSING (expected before the event)"
+    if [ -n "$PROJ" ]; then
+      echo "  gcp project: $PROJ (your own, not a lab project - the lab project is issued to you at the event)"
+    else
+      echo "  gcp project: none (issued to you at the event)"
+    fi
+    if [ "$ADC" = 1 ]; then
+      echo "  adc        : present (your own, not a lab credential)"
+    else
+      echo "  adc        : MISSING (expected before the event)"
+    fi
   else
     echo "  gcp account: $ACCT (must be the lab account, not personal or work)"
     echo "  gcp project: $PROJ"
@@ -228,12 +287,16 @@ else
       [ -f "$SESSION/.agents/skills/novasmart-governance-lab/SKILL.md" ] && est="installed"
     fi
     [ "$code" = 0 ] && sw="ready"
-    # Whether a lab project has been issued is the only signal this script has for
+    # Whether a LAB project has been issued is the only signal this script has for
     # telling the week before the event apart from the morning of it. Before the
     # event nobody has one, so the sign-in below cannot be done yet: the credentials
     # do not exist. Printing it as homework is what confused every early tester.
     # ACCT, PROJ, ADC and PRE_EVENT were read once above, before the footer.
-    [ "$ADC" = 1 ] && [ -n "$PROJ" ] && auth="signed in"
+    # "Signed in" means signed in TO THE LAB: day-of, plus credentials on the machine.
+    # A personal project with personal credentials is not signed in to anything the
+    # lab can use, and calling it so is what sent people looking for the lab content
+    # under their own project.
+    [ "$ADC" = 1 ] && [ "$PRE_EVENT" = 0 ] && auth="signed in"
     auth_row="$auth"; proj_row="ask your lab administrator"
     if [ "$PRE_EVENT" = 1 ]; then
       auth_row="$auth - expected before the event"
@@ -244,6 +307,10 @@ else
     printf "  %-34s %s\n" "google cloud sign-in"      "$auth_row"
     printf "  %-34s %s\n" "antigravity IDE"           "check by hand - open it"
     printf "  %-34s %s\n" "cloud project provisioned" "$proj_row"
+    # Say which verdict this report is speaking under and where it came from. Without
+    # this line a saved verdict is invisible, and a laptop that was a NO-GO in the
+    # hotel last night reads the same as one assessed a minute ago.
+    printf "  %-34s %s\n" "preflight verdict"         "$PF_VERDICT ($PF_SOURCE)"
     echo
     # "Still to do" is now only for things the attendee can act on right now, on this
     # laptop. Cloud sign-in is not one of them before the event, so it left this list
@@ -265,46 +332,71 @@ else
       [ "$est"  != installed ]   && echo "$est_fix"
     fi
     # ---------- what comes next ----------
-    # Three arms, and which one runs is decided by the verdict preflight already gave
-    # at step 2 plus PRE_EVENT. Preflight's three words are printed verbatim so the
-    # attendee reads the same phrase they saw on the report card. The verdict changes
-    # this text and nothing else: the exit code below is the same either way.
+    # Four arms, and which one runs is decided by the verdict preflight already gave
+    # at step 2, plus the phase, plus whether the lab sign-in is finished. Preflight's
+    # three words are printed verbatim so the attendee reads the same phrase they saw
+    # on the report card. The verdict changes this text and nothing else: the exit
+    # code below is the same either way.
     if [ "$PF_VERDICT" = no-go ]; then
       echo
       echo "  Preflight said NO-GO for this laptop."
       echo "    - use the provided lab VM instead"
       echo "    - or ask for a loaner laptop at the event"
       echo "    Your gcloud authentication credentials are given to you at the event."
-    elif [ "$auth" != "signed in" ] && [ "$PRE_EVENT" = 1 ]; then
+    elif [ "$auth" = "signed in" ]; then
+      # Day of the event, signed in to the lab project. Saying so out loud matters:
+      # the report used to simply stop here, and an attendee who reads nothing after
+      # the table cannot tell "all good" apart from "the script gave up".
+      #
+      # "You are ready." is a verdict on the WHOLE card, so it is gated on the whole
+      # card passing. It used to be derived from the sign-in alone, and printed under
+      # a card that read "software toolchain not ready", "lab skills in Session1 not
+      # ready" and "Still to do: fix the failing checks above". The sign-in claim on
+      # its own is still worth making, so the else arm makes exactly that claim and
+      # nothing wider. $code is 0 only when no row drifted and none is missing.
+      echo
+      if [ "$sw" = ready ] && [ "$est" = installed ] && [ "$code" = 0 ]; then
+        echo "  Signed in to the lab project. You are ready."
+      else
+        echo "  Signed in to the lab project. Nothing left to do for Google Cloud."
+        echo "  Fix the failing checks above and run this again."
+      fi
+    elif [ "$PRE_EVENT" = 1 ]; then
       # Before the event this is not a to-do list and must not read like one. It
-      # describes what will happen on the day, and says plainly that none of it can
-      # be done now, because the credentials do not exist yet.
+      # carries no commands at all, not even ones labelled "do not run these yet":
+      # a command on the screen is read as a thing to type, the label is not, and
+      # two rounds of testers proved it by typing them. What the attendee needs to
+      # know here is that the wait is expected and that the check will tell them
+      # what to do once there is something to do.
       echo
       echo "  Next steps, on the day of the event"
-      echo "    Nothing to do for Google Cloud yet. You are not signed in and no lab"
-      echo "    project is set, and before the event both of those are expected."
+      echo "    Nothing to do for Google Cloud yet. No lab project is set on this"
+      echo "    laptop, and before the event that is expected."
+      [ -n "$PROJ" ] && echo "    The project set right now, $PROJ, is your own. The lab does not use it."
+      [ "$ADC" = 1 ] && echo "    The Google Cloud credentials already on this laptop are your own too."
       echo "    Your gcloud authentication credentials are given to you at the event."
       echo
-      echo "    At the event you will be given a lab account and a project ID. These"
-      echo "    are the commands you will run then. Do not run them now - there is"
-      echo "    nothing to sign in with yet:"
-      echo "      gcloud auth login && gcloud auth application-default login"
-      echo "      gcloud config set project PROJECT_ID"
-      echo "      gcloud auth application-default set-quota-project PROJECT_ID"
-      echo "    You will also sign in to Antigravity with 'Use Google Cloud project"
-      echo "    instead', and your lab administrator will confirm that the cloud"
-      echo "    estate is provisioned."
-      [ "$TRACK" = 3 ] && echo "    Track 3 also asks for 'gh auth login' at the end of the lab. That one is" \
-                       && echo "    your own GitHub account, not a lab credential, so you can do it whenever."
-    elif [ "$auth" != "signed in" ]; then
-      # A project is set or credentials are on the machine, so it is the day and these
-      # are real, runnable instructions rather than a description of the future.
+      echo "    At the event you will be given a lab account and a project ID, and you"
+      echo "    will switch this laptop over to them then. Run this readiness check"
+      echo "    again once you have them, and it will show you what to do at that"
+      echo "    point. There is nothing you can usefully do for Google Cloud before"
+      echo "    then."
+      [ "$TRACK" = 3 ] && echo "    Track 3 also asks you to sign in to GitHub at the end of the lab. That" \
+                       && echo "    one is your own GitHub account, not a lab credential, so it can wait too."
+    else
+      # A lab project is set but the sign-in is not finished, so it is the day of the
+      # event and these are real, runnable instructions rather than a description of
+      # the future.
       echo
       echo "  Next steps, now that your lab credentials have been issued"
       echo "    - gcloud auth login && gcloud auth application-default login"
       echo "      then: gcloud config set project PROJECT_ID"
       echo "            gcloud auth application-default set-quota-project PROJECT_ID"
-      echo "      Your gcloud authentication credentials are given to you at the event."
+      # This used to repeat "your credentials are given to you at the event", which is
+      # the right sentence in the pre-event and NO-GO blocks and a contradiction three
+      # lines under a heading that says the credentials have already been issued. What
+      # the attendee needs here is where to read the value, not when it arrives.
+      echo "      PROJECT_ID is on the lab credentials card you were given."
       echo "    - open Antigravity and sign in with 'Use Google Cloud project instead'"
       echo "    - confirm with your lab administrator that the cloud estate is provisioned"
       [ "$TRACK" = 3 ] && echo "    - gh auth login, for your own GitHub account, when you publish at the end"
@@ -314,7 +406,10 @@ else
     echo; echo "  how to fix:"
     for r in "${ROWS[@]}"; do
       IFS='|' read -r n d f s hint <<< "$r"
-      [ "$s" != OK ] && [ -n "$hint" ] && printf "    %-16s %s\n" "$n" "$hint"
+      # SKIP is not a failure. The lab-skills row is SKIP precisely to say "this must
+      # not fail a software-only setup", and listing its hint under "how to fix" put
+      # it back alongside the genuine failures it was written to stay out of.
+      [ "$s" != OK ] && [ "$s" != SKIP ] && [ -n "$hint" ] && printf "    %-16s %s\n" "$n" "$hint"
     done
   fi
 fi
