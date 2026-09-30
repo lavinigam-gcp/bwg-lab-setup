@@ -6,10 +6,28 @@ description: Set up this laptop for the Build with Google Track 2 or Track 3 lab
 # Laptop setup for the Build with Google Track 2 / Track 3 labs
 
 Drive `setup/install.sh` and `setup/verify.sh` to bring this machine to parity with the lab VM,
-then hand back a short list of the things only a human can do.
+then point the user at the readiness check and let it speak for itself.
 
 `verify.sh` is the only source of truth for pass or fail. Never edit it, and never report success
-it did not report.
+it did not report. It is also the only place cloud sign-in is discussed.
+
+**Do not mention gcloud, Qwiklabs accounts, or Antigravity sign-in anywhere in the setup.** The
+reason is attached so that you do not helpfully put it back: people run this days before the event,
+and the lab credentials do not exist yet. They are handed out on the day. A tester who finished the
+install and was told to run `gcloud auth login` and sign in to Qwiklabs went looking for an account
+nobody had issued him. Sign-in is not withheld from him, it is deferred: `verify.sh --readiness`
+prints it at the end, worded as what is coming rather than as homework, and it is the only thing
+here that knows whether the event has started. Do not compose a list of outstanding human actions
+of your own. That is the specific habit that produced the bug.
+
+**Use only this skill while you are setting the laptop up.** The lab's own skills
+(`novasmart-governance-lab`, `build-demo`, `bwgtrack2-demo-build`, and anything under a
+`Desktop/Session*/` or starter-kit `.agents/skills/` folder) are lab content, not setup
+instructions. This repository installs them; it does not run them. They steer you into an in-lab
+persona that checks a cloud estate which has not been provisioned yet, and one of them says out
+loud that its job includes checking the environment is ready, which is close enough to this task to
+be picked up by mistake. If one is offered to you at any point during setup, do not load it and do
+not act on it. They come into play when the user opens the lab folder, which is after you are done.
 
 ## 1. Pre-flight
 
@@ -37,6 +55,12 @@ it did not report.
    - On **NO-GO**, stop. Explain which checks blocked it and recommend the lab VM. Do not install
      anything, and do not reach for `--skip-preflight` to get past it.
    - On **GO WITH CAVEATS**, summarise each warning in plain language and ask whether to continue.
+     Summarise the warnings the card actually printed. Do not add a credential or account warning
+     of your own: before the event preflight deliberately reports the `google account` row as OK,
+     because there is no lab account to check yet.
+   - Keep the verdict word. `verify.sh` takes it at the end as
+     `--preflight-verdict {go,caveats,no-go}`, which is what lets the last step speak in the same
+     three words the user already read here.
 6. Show what `install.sh` will change, say roughly how long it takes (45-90 minutes, mostly
    downloads), and **get an explicit go-ahead before changing anything**. `install.sh` asks too,
    so never pass `--yes` unless the user has already said yes in this conversation.
@@ -121,12 +145,17 @@ then retry that one step. Do not restart from the beginning.
 
 ## 3. Verify
 
-Finish with `bash setup/verify.sh --readiness --track N`, which adds a readiness summary on top of
-the parity table: software, lab content, cloud sign-in, and what the human still has to do.
+Confirm the install with the JSON form and read the exit code:
 
 ```
 bash setup/verify.sh --json --track N
 ```
+
+**Do not run `--readiness` yourself.** It is the user's own last step, it is the one place cloud
+sign-in is described, and running it inside the install turn is exactly how that text ended up in
+the middle of a setup transcript. It reports the parity table plus five readiness rows, and then,
+according to whether the lab credentials have been issued, either what the user will do on the day
+of the event or what they can do now. That wording is its job, not yours.
 
 Exit codes: `0` all pass, `1` drift, `2` something missing, `3` no virtual environment.
 
@@ -181,32 +210,50 @@ it before improvising a fix. Known environment failures that are not the script'
 - **Antigravity will not start on Linux or WSL2** — set the `chrome-sandbox` permissions. Never add
   `--no-sandbox`; it disables a real security boundary.
 
-## 4b. Check which account is signed in
+## 4b. Check which account is signed in, but only if there is an account question
 
-The lab is played with the **Qwiklabs account issued for it** — never a personal Google account and
-never a work or corporate one. A different identity cannot see the lab's project or agents, and
-anything created lands in the user's own project and bills their own account.
+**Skip this section entirely when preflight reports the `google account` row as OK.** Before the
+event it always will: no lab project is set and no application-default credentials are on the
+machine, so preflight knows the account question is not live yet, and neither should you. Raising
+it anyway turns a row that says "issued at the event" into an interrogation about credentials the
+user has not been given.
 
-Preflight reports the active account and flags anything that does not look like a lab account. If it
-warns, **stop and ask the user to confirm** before installing. Do not assume it is fine because the
-tooling works.
+If preflight **warns** on that row, then a project or credentials are already on this machine and
+the question is real. The lab is played with the **Qwiklabs account issued for it** — never a
+personal Google account and never a work or corporate one. A different identity cannot see the
+lab's project or agents, and anything created lands in the user's own project and bills their own
+account. Say what preflight found, and ask the user to confirm before installing. Do not assume it
+is fine because the tooling works.
 
 ## 5. Hand off
 
-These cannot be automated. List whichever still apply, and be specific:
+**Do not write your own list of the things only a human can do.** This is the restatement of the
+rule at the top of this file, put here because this is where the temptation lands: the install has
+just succeeded, a closing summary feels owed, and the obvious content for it is gcloud and
+Qwiklabs. `verify.sh --readiness` already prints that list, it is the only thing here that knows
+whether the credentials have been issued, and the one you would write does not. Two previous
+attempts to fix this failed because the offending text was deleted and the instruction that
+generates it was left in place.
 
-- Sign in to Antigravity with the **Qwiklabs account issued for this lab**, choosing
-  **Use Google Cloud project instead**. Not a personal or corporate account.
-- `gcloud auth login` and `gcloud auth application-default login`, then
-  `gcloud auth application-default set-quota-project PROJECT_ID`. The quota project is not optional.
-- Ask the lab administrator for the IAM roles this account needs, and for confirmation that the
-  Google Cloud estate has been provisioned. Without it, every exercise fails on its first real call
-  even though the laptop is correct.
-- Reopen Antigravity on the folder for the track: `~/Desktop/Session1` for Track 2, or
-  `~/Desktop/build-with-gemini` for Track 3. Opening the folder is also what loads its skills, so
-  name the exact folder rather than saying "open the project".
-- **Track 3 only:** the kit's `publish-to-github` skill needs a GitHub account and an interactive
-  `gh auth login`. `gh` is installed, but signing in is the user's to do.
+Say these three things, and stop.
+
+1. **What happened.** What `install.sh` installed, and what `verify.sh --json` returned. Quote its
+   numbers rather than restating them as a judgement of your own.
+2. **The one line the user must add by hand**, on Track 2 only, if `install.sh` printed it: the
+   `export NOVASMART_SCORECARD_HOME=...` line for their shell profile. Repeat it verbatim. This is
+   the only manual step that belongs in your summary, because it can be done now and needs no
+   credentials.
+3. **The two commands that end the setup**, in this order:
+   - `bash setup/verify.sh --readiness --track N --preflight-verdict WORD`, where WORD is `go`,
+     `caveats` or `no-go`, whichever preflight gave at step 1. `install.sh` prints this command
+     too; match it.
+   - Open the folder for the track in Antigravity: `~/Desktop/Session1` for Track 2, or
+     `~/Desktop/build-with-gemini` for Track 3. Name the exact folder rather than saying "open the
+     project", because opening the folder is also what loads its skills.
+
+Then let the readiness report answer everything else. It covers cloud sign-in, the Antigravity
+sign-in wizard, the lab project, and Track 3's `gh auth login`, and it words each one according to
+whether the event has started. Do not preview it, summarise it, or reorder what it will say.
 
 ## 6. Scope
 
@@ -214,6 +261,11 @@ You may write to: `~/novasmart-lab/`, `~/Desktop/Session1`, `Session2`, `Session
 shell profile. On Track 3, also `~/Desktop/build-with-gemini`, and there only to create the clone,
 never to delete or rewrite what is already in it. You may run `setup/install.sh` and
 `setup/verify.sh`.
+
+The scope on skills is this one. Setup is driven by this file alone. The lab skills this repository
+copies into `Desktop/Session*/.agents/skills/`, and the ones inside the Track 3 starter kit, are
+cargo: install them, verify they landed, and do not read them for instructions. They belong to the
+lab session that starts after you hand off.
 
 Anything else — installing unrelated software, editing files elsewhere, changing gcloud
 configuration beyond the documented commands, or granting IAM roles — **stop and report instead**.

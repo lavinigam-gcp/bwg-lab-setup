@@ -313,9 +313,15 @@ notices the newly installed lifecycle skills.
 
 ---
 
-## Step 6 — Google Cloud
+## Step 6 — Google Cloud, on the day of the event
 
-*Both tracks.*
+*Both tracks. Not before the event.*
+
+Everything in this step needs credentials you do not have yet. The Qwiklabs account and the lab
+project ID are handed out at the event, so if you are setting this laptop up in advance, read this
+step and stop. Nothing below can be run now, and nothing below is needed for the rest of the setup.
+Note also that this file has its own numbering: this Step 6 is not the readiness check that the
+attendee landing page calls step 6. That one is Step 7 here.
 
 ```bash
 gcloud auth login

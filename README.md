@@ -24,8 +24,9 @@ repository is for people who are comfortable administering their own machine, ha
 scripts, and accept the risks of running them.
 
 **These scripts change your computer.** They install system packages, add third-party package
-repositories and signing keys, download and run installer scripts from the internet, create and
-delete directories under your home directory, and append lines to your shell profile. On Linux and
+repositories and signing keys, download and run installer scripts from the internet, and create and
+delete directories under your home directory. They do not edit your shell profile: Track 2 prints
+one `export` line for you to add yourself. On Linux and
 WSL2 they use `sudo`, so they run with administrative privileges. Run
 `bash setup/install.sh --dry-run` to print every command first, and back up anything you cannot
 afford to lose before you begin.
@@ -190,14 +191,14 @@ run on your machine, or if you simply want to understand what it does.
 - **Antigravity IDE** — install it yourself from <https://antigravity.google/download>. It is the
   editor the labs run in, so it cannot install itself. The separate `agy` command line tool is
   **not** installed and is not needed: the labs are played in the IDE and nothing in them calls it.
-- **Sign in to Antigravity with the Qwiklabs account issued for this lab.** Not your personal Google
-  account, and not your work or corporate account. See
+- **On the day of the event, sign in to Antigravity with the Qwiklabs account issued for this
+  lab.** Not your personal Google account, and not your work or corporate account. That account is
+  handed out at the event, so there is nothing to do here beforehand. See
   [Which account to use](#which-account-to-use).
 - macOS 13+, or a Linux with glibc 2.28+ (Ubuntu 20.04+ / Debian 10+). Windows 10 build 19044+
   with WSL2 and WSLg also works, on limited support: see [Windows with WSL2](#windows-with-wsl2)
 - 8 GB RAM minimum, 16 GB recommended · 15 GB free disk · 4 CPU cores recommended
 - Homebrew on macOS
-- A Google Cloud project you can use
 - **Track 3 only:** a GitHub account, to publish your finished project. The GitHub CLI (`gh`)
   itself is installed for you by `--track 3`; you do not need it beforehand.
 
@@ -298,6 +299,10 @@ setup/install.sh [options]
 
 setup/verify.sh [--json] [--fix-hints] [--readiness] [--track {2,3}]
                 [--root DIR] [--lab-home DIR] [--venv DIR] [--kit-dir DIR]
+                [--preflight-verdict {go,caveats,no-go,unknown}]
+  --preflight-verdict  what preflight.sh said earlier, in its own three words.
+                       Changes only the readiness text, never the exit code.
+                       Default: unknown, which lets verify.sh decide on its own
   exit 0 all pass · 1 drift · 2 missing · 3 no virtual environment · 64 bad flag
 ```
 
@@ -312,12 +317,30 @@ single `--only` command that retries just that step.
 ## What this cannot do for you
 
 Installing Antigravity, its sign-in wizard, `gcloud auth login`, granting your IAM roles, and
-provisioning the Google Cloud project all need a human. `verify.sh --readiness` lists whichever are
-still outstanding.
+provisioning the Google Cloud project all need a human. Run `verify.sh --readiness` and it will
+tell you where each of those stands.
+
+**None of them can be done before the event.** The Qwiklabs account, the project ID and the IAM
+roles are all issued to you on the day. If you are setting this laptop up in advance, the cloud
+side is not your homework, and `verify.sh --readiness` will say so: it reports the sign-in as
+expected-for-now and describes what you will do at the event rather than listing it as a task. If
+you pass it `--preflight-verdict no-go`, it stops describing sign-in altogether and tells you to
+use the provided lab VM or ask for a loaner laptop, which on a machine that failed preflight is the
+only useful answer.
 
 Note that a correctly set up laptop will still fail every lab exercise until the **Google Cloud
 project** has been provisioned by your lab administrator. That is expected, and separate from
 anything here.
+
+### Which "step 6"?
+
+Three numbering schemes overlap in this material and they are not the same list. The attendee
+landing page numbers the whole day 1 to 6 and its step 6 is the readiness check. Path B above has
+its own three steps. [manual_setup.md](manual_setup.md) has seven, and **its** Step 6 is the
+`gcloud auth login` block, which is an event-day step and not the readiness check. If someone tells
+you "the cloud sign-in happens at step 6", they mean the readiness check tells you about it, not
+that you should open the manual walkthrough and authenticate now. When in doubt, name the command
+rather than the number.
 
 ## Testing status
 

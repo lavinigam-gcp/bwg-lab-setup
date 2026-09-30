@@ -121,6 +121,172 @@ jobs:
           bash setup/verify.sh --help >/dev/null || { echo "--help broke"; exit 1; }
           echo "unknown flags are refused, --help still works"
 
+      - name: the readiness report does not ask for credentials nobody has yet
+        run: |
+          # This is the assertion that was missing. Nothing in this file has ever
+          # depended on the readiness text, which is why the same defect shipped twice:
+          # the first attempt edited verify.sh while the offending text came from the
+          # skill, and the second moved the gate to a step number that runs inside the
+          # install anyway. Both passed CI. These are outcome assertions on what an
+          # attendee actually reads.
+          #
+          # Two things have to be faked to reach the pre-event and event-day states on a
+          # runner: gcloud, and HOME. The shim answers only the two queries verify.sh
+          # makes, so it cannot accidentally pass something real.
+          mkdir -p /tmp/shim /tmp/h/.config/gcloud
+          cat > /tmp/shim/gcloud <<'SH'
+          #!/usr/bin/env bash
+          case "$*" in
+            "config get-value project") printf '%s\n' "${STUB_PROJECT:-}" ;;
+            "config get-value account") printf '%s\n' "${STUB_ACCOUNT:-}" ;;
+          esac
+          SH
+          chmod +x /tmp/shim/gcloud
+          ADC=/tmp/h/.config/gcloud/application_default_credentials.json
+          # $1 verdict, rest passed through. Prints the readiness output.
+          rd() { pfv="$1"; shift
+                 env HOME=/tmp/h PATH=/tmp/shim:$PATH bash setup/verify.sh --readiness \
+                   --preflight-verdict "$pfv" --venv /tmp/fx --root /tmp/r2 "$@" 2>&1; }
+          has() { grep -qF "$2" <<<"$1" || { echo "MISSING: $2"; echo "$1"; exit 1; }; }
+          hasnt() { grep -qF "$2" <<<"$1" && { echo "SHOULD NOT APPEAR: $2"; echo "$1"; exit 1; }; return 0; }
+
+          # ---- pre-event: no project, no application-default credentials ----
+          rm -f "$ADC"; export STUB_PROJECT="" STUB_ACCOUNT=""
+          for v in go caveats unknown; do
+            out="$(rd $v || true)"
+            has "$out" "Next steps, on the day of the event"
+            has "$out" "Your gcloud authentication credentials are given to you at the event."
+            has "$out" "Do not run them now"
+            # The whole defect in one assertion. Before the event the sign-in must not be
+            # rendered as a thing to go and do, so it must not appear as a to-do bullet.
+            hasnt "$out" "    - gcloud auth login"
+            # And nothing in the actionable list may be a cloud task at all.
+            todo="$(sed -n '/Still to do:/,/^$/p' <<<"$out")"
+            case "$todo" in *gcloud*|*Qwiklabs*)
+              echo "the pre-event 'Still to do' list contains a cloud task:"; echo "$todo"; exit 1 ;;
+            esac
+          done
+          echo "pre-event: sign-in is described, not demanded"
+
+          # ---- event day: a project has been issued, sign-in not finished ----
+          # A project and no credentials is the real event-day state. Setting both would
+          # make auth "signed in" and skip the block this is trying to assert on.
+          rm -f "$ADC"; export STUB_PROJECT="qwiklabs-gcp-01-abc123" STUB_ACCOUNT="student-01@qwiklabs.net"
+          for v in go caveats unknown; do
+            out="$(rd $v || true)"
+            has "$out" "Next steps, now that your lab credentials have been issued"
+            has "$out" "gcloud auth login && gcloud auth application-default login"
+            has "$out" "Your gcloud authentication credentials are given to you at the event."
+            hasnt "$out" "Next steps, on the day of the event"
+          done
+          echo "event day: the real commands are printed"
+
+          # ---- fully signed in: nothing is outstanding, so nothing is printed ----
+          echo '{}' > "$ADC"
+          out="$(rd go || true)"
+          hasnt "$out" "Next steps"
+          hasnt "$out" "gcloud auth login"
+          echo "signed in: no next-steps block at all"
+
+          # ---- NO-GO: no sign-in content in either phase ----
+          for phase in pre event; do
+            rm -f "$ADC"
+            if [ "$phase" = pre ]; then export STUB_PROJECT=""
+            else export STUB_PROJECT="qwiklabs-gcp-01-abc123"; fi
+            out="$(rd no-go || true)"
+            has "$out" "use the provided lab VM instead"
+            has "$out" "ask for a loaner laptop at the event"
+            # No commands on NO-GO, but still say where credentials come from, so
+            # the attendee is not left wondering why they have none.
+            has "$out" "credentials are given to you at the event"
+            for s in "gcloud auth login" "application-default" "Qwiklabs" "Next steps"; do
+              hasnt "$out" "$s"
+            done
+          done
+          echo "no-go: VM or loaner only, no sign-in content"
+
+          # ---- "you are not signed in" must not be said to someone who is ----
+          # verify.sh used to key the pre-event state on the project alone, so a machine
+          # with application-default credentials and no project was told it was not
+          # signed in. Half of that sentence was false.
+          rm -f "$ADC"; echo '{}' > "$ADC"; export STUB_PROJECT=""
+          out="$(rd unknown || true)"
+          hasnt "$out" "You are not signed in and no lab"
+          echo "adc present: the pre-event sentence is not printed"
+
+          # ---- the verdict changes text and nothing else ----
+          # --preflight-verdict must not touch the exit-code contract. CI, the skill and
+          # the repair table all read those codes.
+          rm -f "$ADC"; export STUB_PROJECT=""
+          base=0; rd unknown >/dev/null 2>&1 || base=$?
+          for v in go caveats no-go; do
+            c=0; rd $v >/dev/null 2>&1 || c=$?
+            [ "$c" = "$base" ] || { echo "--preflight-verdict $v changed the exit code: $c vs $base"; exit 1; }
+          done
+          echo "the verdict changes text only, exit stays $base"
+
+          # ---- it is a real parser arm, not a fall-through ----
+          # ci.yml already asserts that every flag the docs mention exists, but that
+          # reads the parser as text. This runs it: a flag that falls through to the
+          # catch-all arm exits 64, and the README now documents this one.
+          c=0
+          env HOME=/tmp/h PATH=/tmp/shim:$PATH bash setup/verify.sh --preflight-verdict go \
+            --venv /tmp/fx --root /tmp/r2 >/dev/null 2>&1 || c=$?
+          [ "$c" != 64 ] || { echo "--preflight-verdict is not in the parser"; exit 1; }
+          if env HOME=/tmp/h bash setup/verify.sh --preflight-verdict nogo --venv /tmp/fx >/dev/null 2>&1; then
+            echo "verify.sh accepted a mistyped verdict"; exit 1; fi
+          echo "--preflight-verdict is parsed and validated"
+
+      - name: preflight does not demand a lab account before the event
+        run: |
+          # The account row fired for every attendee pre-event and its advice asked for
+          # credentials that did not exist. install.sh re-runs preflight inside its own
+          # gate, so that advice also reached the user mid-install. Assert both halves:
+          # the row is no longer a warning pre-event, and the advice string is gone.
+          mkdir -p /tmp/shim2 /tmp/h2
+          cat > /tmp/shim2/gcloud <<'SH'
+          #!/usr/bin/env bash
+          case "$*" in
+            "config get-value project") printf '%s\n' "${STUB_PROJECT:-}" ;;
+            "config get-value account") printf '%s\n' "${STUB_ACCOUNT:-}" ;;
+          esac
+          SH
+          chmod +x /tmp/shim2/gcloud
+          # || true: preflight exits 1 for GO WITH CAVEATS, which is the normal result on
+          # a runner, and a bare command substitution of that would fail the step.
+          pf() { env HOME=/tmp/h2 PATH=/tmp/shim2:$PATH bash setup/preflight.sh --json 2>/dev/null || true; }
+          row() { python3 -c 'import json,sys;print([c["'"$2"'"] for c in json.load(sys.stdin)["checks"] if c["check"]=="google account"][0])' <<<"$1"; }
+          export STUB_PROJECT="" STUB_ACCOUNT="someone@example.com"
+          out="$(pf)"
+          [ "$(row "$out" status)" = OK ] \
+            || { echo "pre-event: google account is still a warning"; exit 1; }
+          [ -z "$(row "$out" advice)" ] \
+            || { echo "pre-event: google account still gives advice: $(row "$out" advice)"; exit 1; }
+          export STUB_PROJECT="qwiklabs-gcp-01-abc123"
+          out="$(pf)"
+          [ "$(row "$out" status)" = WARN ] \
+            || { echo "event day: a non-lab account is no longer flagged"; exit 1; }
+          echo "the account row is pre-event aware"
+
+      - name: nothing in the setup path asks for credentials at install time
+        run: |
+          # The skill is prose and CI has no model to run it through, so assert the two
+          # things about it that are mechanically checkable: it carries the negative
+          # constraint with its reason, and it no longer instructs the agent to compose
+          # a human-actions list or to pre-run the readiness report.
+          S=.agents/skills/bwg-lab-setup/SKILL.md
+          for s in "Do not mention gcloud, Qwiklabs accounts, or Antigravity sign-in" \
+                   "Use only this skill while you are setting the laptop up." \
+                   "Do not write your own list of the things only a human can do." \
+                   "Do not run \`--readiness\` yourself."; do
+            grep -qF "$s" "$S" || { echo "SKILL.md lost its guard: $s"; exit 1; }
+          done
+          for s in "hand back a short list of the things only a human can do" \
+                   "These cannot be automated. List whichever still apply"; do
+            grep -qF "$s" "$S" && { echo "SKILL.md still generates a hand-off list: $s"; exit 1; }
+          done
+          echo "the setup skill defers sign-in to the readiness check"
+
       - name: an interrupted clone is not reported as a healthy kit
         run: |
           # A .git directory with no checkout is what a clone killed by a closed lid

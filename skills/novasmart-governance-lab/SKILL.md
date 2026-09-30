@@ -3,11 +3,14 @@ name: novasmart-governance-lab
 description: >-
   Steering skill for `agy` in the NovaSmart AI-governance lab (Build with Google Track 2). Load
   whenever the user is the "Head of AI Platform & Security" securing NovaSmart's agent estate — checking
-  the environment is ready, discovering shadow agents, fixing shared identities, right-sizing access,
+  the cloud estate is ready, discovering shadow agents, fixing shared identities, right-sizing access,
   screening content, and proving it from audit logs (M0 "See Everything", M1 "Take Action" and later
   missions). Gives you the guardrails, output format, verified command surfaces and spoiler-fenced
-  orientation so you act fast instead of re-researching the setup. A guide, not an answer key — the
+  orientation so you act fast instead of re-researching the missions. A guide, not an answer key — the
   leader must still discover the estate. On each mission, read the matching references/mN.md.
+  Never load while the laptop is being set up, installed or repaired: the toolchain, the Python
+  environment, the session folders and verify.sh belong to the `bwg-lab-setup` skill, not here.
+  This skill starts once the lab session itself opens.
 ---
 
 # NovaSmart Governance Lab — steering skill for `agy`

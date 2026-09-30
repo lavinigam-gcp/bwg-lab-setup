@@ -17,11 +17,18 @@ VENV="${LAB_VENV:-}"
 VENV_EXPLICIT=0
 
 JSON=0; HINTS=0; READINESS=0; TRACK="${BWG_TRACK:-2}"
+# What preflight said at step 2. This script does not and must not derive it: preflight
+# owns those three words, and a second opinion computed here would drift from the card
+# the attendee already read. It is an input, it affects only the readiness text below,
+# and it changes no exit code. Default "unknown" means nobody told us, so the event-side
+# logic decides on its own, exactly as it did before this flag existed.
+PF_VERDICT=unknown
 while [ $# -gt 0 ]; do
   case "$1" in
     --json) JSON=1 ;;
     --fix-hints) HINTS=1 ;;
     --readiness) READINESS=1; HINTS=1 ;;
+    --preflight-verdict) PF_VERDICT="${2:?--preflight-verdict needs go, caveats, no-go or unknown}"; shift ;;
     --track) TRACK="${2:?--track needs 2 or 3}"; shift ;;
     --root) LAB_ROOT="${2:?--root needs a directory}"; shift ;;
     --lab-home) LAB_HOME="${2:?--lab-home needs a directory}"; shift ;;
@@ -30,6 +37,10 @@ while [ $# -gt 0 ]; do
     -h|--help) sed -n '2,5p' "$0"
                echo "Usage: verify.sh [--json] [--fix-hints] [--readiness] [--track {2,3}]"
                echo "                 [--root DIR] [--lab-home DIR] [--venv DIR] [--kit-dir DIR]"
+               echo "                 [--preflight-verdict {go,caveats,no-go,unknown}]"
+               echo ""
+               echo "  --preflight-verdict  what preflight.sh said at step 2. Changes only the"
+               echo "                       readiness text, never the exit code. Default: unknown"
                exit 0 ;;
     # Without this arm anything unrecognised fell through to the shift and vanished.
     # "verify.sh --trak 3", or "verify.sh 3" from someone copying the installer's own
@@ -42,6 +53,13 @@ while [ $# -gt 0 ]; do
   shift
 done
 case "$TRACK" in 2|3) ;; *) echo "unknown track: $TRACK (use 2 or 3)" >&2; exit 64 ;; esac
+# Same treatment as --track: a mistyped verdict must be refused, not silently treated
+# as unknown. Silently falling back is how "verify.sh --preflight-verdict nogo" would
+# print the day-of block to somebody preflight had already told to use the lab VM.
+case "$PF_VERDICT" in
+  go|caveats|no-go|unknown) ;;
+  *) echo "unknown preflight verdict: $PF_VERDICT (use go, caveats, no-go or unknown)" >&2; exit 64 ;;
+esac
 
 SESSION="$LAB_ROOT/Desktop/Session1"
 [ -n "$KIT_DIR" ] || KIT_DIR="$LAB_ROOT/Desktop/build-with-gemini"
@@ -168,9 +186,30 @@ else
     echo "  in Session1: $(ls -1 "$SESSION/.agents/skills" 2>/dev/null | tr '\n' ' ')"
     echo "  scorecard  : ${NOVASMART_SCORECARD_HOME:-UNSET — set it, see runbook 4.4}"
   fi
-  echo "  gcp account: $(gcloud config get-value account 2>/dev/null) (must be the lab account, not personal or work)"
-  echo "  gcp project: $(gcloud config get-value project 2>/dev/null)"
-  echo "  adc        : $([ -f "$HOME/.config/gcloud/application_default_credentials.json" ] && echo present || echo MISSING)"
+  # Identity is read once, here, and both output zones below use these four values.
+  # It used to be read again inside --readiness, which is how the footer and the
+  # readiness rows ended up disagreeing: the footer had no pre-event wording at all,
+  # so a laptop the readiness report called "expected before the event" was still
+  # scolded three lines higher for not being on the lab account.
+  ACCT="$(gcloud config get-value account 2>/dev/null)"
+  PROJ="$(gcloud config get-value project 2>/dev/null)"
+  ADC=0
+  [ -f "$HOME/.config/gcloud/application_default_credentials.json" ] && ADC=1
+  # PRE_EVENT needs both halves, not just the project. Keyed on the project alone it
+  # told someone who had already run `gcloud auth application-default login` that they
+  # were "not signed in and no lab project is set", and half of that was false. A
+  # machine with credentials on it is past the pre-event state whatever the project
+  # says, so the honest test is: no lab project AND no application-default credentials.
+  PRE_EVENT=0; [ -z "$PROJ" ] && [ "$ADC" = 0 ] && PRE_EVENT=1
+  if [ "$PRE_EVENT" = 1 ]; then
+    echo "  gcp account: ${ACCT:-none} (the lab account is issued to you at the event)"
+    echo "  gcp project: none (issued to you at the event)"
+    echo "  adc        : MISSING (expected before the event)"
+  else
+    echo "  gcp account: $ACCT (must be the lab account, not personal or work)"
+    echo "  gcp project: $PROJ"
+    echo "  adc        : $([ "$ADC" = 1 ] && echo present || echo MISSING)"
+  fi
   echo
   echo "  $pass of $total checks OK"
   if [ "$READINESS" = 1 ]; then
@@ -193,10 +232,8 @@ else
     # telling the week before the event apart from the morning of it. Before the
     # event nobody has one, so the sign-in below cannot be done yet: the credentials
     # do not exist. Printing it as homework is what confused every early tester.
-    PROJ="$(gcloud config get-value project 2>/dev/null)"
-    [ -f "$HOME/.config/gcloud/application_default_credentials.json" ] \
-      && [ -n "$PROJ" ] && auth="signed in"
-    PRE_EVENT=0; [ -z "$PROJ" ] && PRE_EVENT=1
+    # ACCT, PROJ, ADC and PRE_EVENT were read once above, before the footer.
+    [ "$ADC" = 1 ] && [ -n "$PROJ" ] && auth="signed in"
     auth_row="$auth"; proj_row="ask your lab administrator"
     if [ "$PRE_EVENT" = 1 ]; then
       auth_row="$auth - expected before the event"
@@ -208,33 +245,69 @@ else
     printf "  %-34s %s\n" "antigravity IDE"           "check by hand - open it"
     printf "  %-34s %s\n" "cloud project provisioned" "$proj_row"
     echo
-    if [ "$sw" = ready ] && [ "$est" = installed ] && [ "$auth" = "signed in" ]; then
-      echo "  Your laptop is ready. Open $open_dir in Antigravity and begin."
+    # "Still to do" is now only for things the attendee can act on right now, on this
+    # laptop. Cloud sign-in is not one of them before the event, so it left this list
+    # entirely and became the forward-looking block underneath. Listing it here as a
+    # task is what sent a tester hunting for credentials a week before they exist.
+    if [ "$sw" = ready ] && [ "$est" = installed ]; then
+      if [ "$PF_VERDICT" = no-go ]; then
+        # Preflight found something blocking. Everything this script owns is in place,
+        # and saying more than that would contradict the block below.
+        echo "  Everything this script installs is in place."
+      elif [ "$auth" = "signed in" ]; then
+        echo "  Your laptop is ready. Open $open_dir in Antigravity and begin."
+      else
+        echo "  Your laptop is ready. Nothing left to install."
+      fi
     else
       echo "  Still to do:"
       [ "$sw"   != ready ]       && echo "    - fix the failing checks above (bash setup/verify.sh --fix-hints --track $TRACK)"
       [ "$est"  != installed ]   && echo "$est_fix"
-      # Two states, one block. Before the event the sign-in is not a task at all, so
-      # it is reported as expected rather than listed as something to go and fix. On
-      # the day a project exists, and the commands below are exactly what to run.
-      # Either way the attendee is told where the credentials come from.
-      if [ "$auth" != "signed in" ] && [ "$PRE_EVENT" = 1 ]; then
-        echo "    - nothing to do for Google Cloud yet. You are not signed in and no lab"
-        echo "      project is set, and before the event both of those are expected."
-        echo "      Your gcloud authentication credentials are given to you at the event."
-      elif [ "$auth" != "signed in" ]; then
-        echo "    - gcloud auth login && gcloud auth application-default login"
-        echo "      then: gcloud config set project PROJECT_ID"
-        echo "            gcloud auth application-default set-quota-project PROJECT_ID"
-        echo "      Your gcloud authentication credentials are given to you at the event."
-      fi
-      # Both of these are Google Cloud tasks, so they belong to the same two states
-      # as the block above. Before the event they are not tasks, and printing them
-      # here would contradict the line that just said there is nothing to do yet.
-      if [ "$PRE_EVENT" = 0 ]; then
-        echo "    - open Antigravity and sign in with 'Use Google Cloud project instead'"
-        echo "    - confirm with your lab administrator that the cloud estate is provisioned"
-      fi
+    fi
+    # ---------- what comes next ----------
+    # Three arms, and which one runs is decided by the verdict preflight already gave
+    # at step 2 plus PRE_EVENT. Preflight's three words are printed verbatim so the
+    # attendee reads the same phrase they saw on the report card. The verdict changes
+    # this text and nothing else: the exit code below is the same either way.
+    if [ "$PF_VERDICT" = no-go ]; then
+      echo
+      echo "  Preflight said NO-GO for this laptop."
+      echo "    - use the provided lab VM instead"
+      echo "    - or ask for a loaner laptop at the event"
+      echo "    Your gcloud authentication credentials are given to you at the event."
+    elif [ "$auth" != "signed in" ] && [ "$PRE_EVENT" = 1 ]; then
+      # Before the event this is not a to-do list and must not read like one. It
+      # describes what will happen on the day, and says plainly that none of it can
+      # be done now, because the credentials do not exist yet.
+      echo
+      echo "  Next steps, on the day of the event"
+      echo "    Nothing to do for Google Cloud yet. You are not signed in and no lab"
+      echo "    project is set, and before the event both of those are expected."
+      echo "    Your gcloud authentication credentials are given to you at the event."
+      echo
+      echo "    At the event you will be given a lab account and a project ID. These"
+      echo "    are the commands you will run then. Do not run them now - there is"
+      echo "    nothing to sign in with yet:"
+      echo "      gcloud auth login && gcloud auth application-default login"
+      echo "      gcloud config set project PROJECT_ID"
+      echo "      gcloud auth application-default set-quota-project PROJECT_ID"
+      echo "    You will also sign in to Antigravity with 'Use Google Cloud project"
+      echo "    instead', and your lab administrator will confirm that the cloud"
+      echo "    estate is provisioned."
+      [ "$TRACK" = 3 ] && echo "    Track 3 also asks for 'gh auth login' at the end of the lab. That one is" \
+                       && echo "    your own GitHub account, not a lab credential, so you can do it whenever."
+    elif [ "$auth" != "signed in" ]; then
+      # A project is set or credentials are on the machine, so it is the day and these
+      # are real, runnable instructions rather than a description of the future.
+      echo
+      echo "  Next steps, now that your lab credentials have been issued"
+      echo "    - gcloud auth login && gcloud auth application-default login"
+      echo "      then: gcloud config set project PROJECT_ID"
+      echo "            gcloud auth application-default set-quota-project PROJECT_ID"
+      echo "      Your gcloud authentication credentials are given to you at the event."
+      echo "    - open Antigravity and sign in with 'Use Google Cloud project instead'"
+      echo "    - confirm with your lab administrator that the cloud estate is provisioned"
+      [ "$TRACK" = 3 ] && echo "    - gh auth login, for your own GitHub account, when you publish at the end"
     fi
   fi
   if [ "$HINTS" = 1 ] && [ "$code" != 0 ]; then

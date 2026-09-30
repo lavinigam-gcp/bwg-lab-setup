@@ -127,17 +127,37 @@ fi
 # ---------- identity ----------
 # The lab is played with the issued Qwiklabs account. A personal or corporate login
 # points at the wrong project and fails in ways that look like broken tooling.
+#
+# Before the event nobody has that account yet, so this row cannot be a warning then.
+# It fired for every attendee on every pre-event run, its advice asked for credentials
+# that do not exist, and because any WARN below becomes GO WITH CAVEATS it made a clean
+# GO unreachable for everyone. install.sh re-runs this script inside its own gate, so
+# that advice also reached the attendee mid-install, which is where it did the damage.
+# The row still earns its place on the day; it is only the pre-event status and advice
+# that change. PRE_EVENT is the same test verify.sh uses, so the two scripts agree:
+# no lab project set AND no application-default credentials on the machine.
 if command -v gcloud >/dev/null 2>&1; then
   ACCT="$(gcloud config get-value account 2>/dev/null)"
+  PROJ="$(gcloud config get-value project 2>/dev/null)"
+  PRE_EVENT=0
+  [ -z "$PROJ" ] && [ ! -f "$HOME/.config/gcloud/application_default_credentials.json" ] && PRE_EVENT=1
   case "${ACCT:-}" in
     ""|"(unset)")
-      add "google account" WARN "not signed in" "the lab account" \
-        "Sign in with the Qwiklabs account issued for this lab, not a personal or work account." ;;
+      if [ "$PRE_EVENT" = 1 ]; then
+        add "google account" OK "not signed in" "issued at the event" ""
+      else
+        add "google account" WARN "not signed in" "the lab account" \
+          "Sign in with the Qwiklabs account issued for this lab, not a personal or work account."
+      fi ;;
     *@qwiklabs.net|*@gcpstudent*|*@qwiklabs*)
       add "google account" OK "$ACCT" "the lab account" "" ;;
     *)
-      add "google account" WARN "$ACCT" "the lab account" \
-        "This does not look like a Qwiklabs lab account. Using a personal or corporate account points at the wrong project and can bill your own account. Verify before continuing." ;;
+      if [ "$PRE_EVENT" = 1 ]; then
+        add "google account" OK "$ACCT" "issued at the event" ""
+      else
+        add "google account" WARN "$ACCT" "the lab account" \
+          "This does not look like a Qwiklabs lab account. Using a personal or corporate account points at the wrong project and can bill your own account. Verify before continuing."
+      fi ;;
   esac
 fi
 
